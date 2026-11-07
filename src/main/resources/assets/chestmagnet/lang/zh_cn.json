@@ -1,1 +1,7 @@
-{"item.chestmagnet.chest_magnet":"宝箱磁铁","itemGroup.chestmagnet":"宝箱磁铁"}
+{
+  "item.chestmagnet.chest_magnet": "宝箱磁铁",
+  "itemGroup.chestmagnet": "宝箱磁铁",
+  "structure.minecraft.jungle_pyramid": "丛林神庙",
+  "structure.minecraft.desert_pyramid": "沙漠神庙",
+  "structure.minecraft.pillager_outpost": "掠夺者前哨站"
+}

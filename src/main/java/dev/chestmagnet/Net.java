@@ -17,7 +17,7 @@ import net.minecraftforge.registries.*;
 public final class Net {
   private static final SimpleChannel CHANNEL =
       NetworkRegistry.newSimpleChannel(
-          new ResourceLocation(ChestMagnet.ID, "main"), () -> "1", "1"::equals, "1"::equals);
+          new ResourceLocation(ChestMagnet.ID, "main"), () -> "2", "2"::equals, "2"::equals);
   static final DeferredRegister<MenuType<?>> MENUS =
       DeferredRegister.create(ForgeRegistries.MENU_TYPES, ChestMagnet.ID);
   public static final RegistryObject<MenuType<MagnetMenu>> MENU =
@@ -33,6 +33,17 @@ public final class Net {
 
   public static void init() {
     MENUS.register(FMLJavaModLoadingContext.get().getModEventBus());
+    CHANNEL.registerMessage(
+        2,
+        CompoundTag.class,
+        (m, b) -> b.writeNbt(m),
+        b -> b.readNbt(),
+        (m, c) -> {
+          var ctx = c.get();
+          ctx.enqueueWork(() -> StructureScreen.receive(m));
+          ctx.setPacketHandled(true);
+        },
+        Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     CHANNEL.registerMessage(
         0,
         Request.class,
@@ -65,6 +76,10 @@ public final class Net {
         Optional.of(NetworkDirection.PLAY_TO_CLIENT));
   }
 
+  public static void structure(ServerPlayer p, CompoundTag data) {
+    CHANNEL.send(PacketDistributor.PLAYER.with(() -> p), data);
+  }
+
   public static void request(int action, int value, UUID id) {
     CHANNEL.sendToServer(new Request(action, value, id));
   }
@@ -87,6 +102,15 @@ public final class Net {
 
   private static void handle(ServerPlayer p, Request q) {
     if (p == null || p.isSpectator()) return;
+    if (q.action() >= 20) {
+      if (q.action() == 20) {
+        long now = p.level().getGameTime();
+        if (now - OPENED.getOrDefault(p.getUUID(), -100L) < 10) return;
+        OPENED.put(p.getUUID(), now);
+      }
+      StructureJobs.request(p, q);
+      return;
+    }
     if (q.action == 0) {
       long now = p.level().getGameTime();
       if (!p.isShiftKeyDown() || now - OPENED.getOrDefault(p.getUUID(), -100L) < 10) return;

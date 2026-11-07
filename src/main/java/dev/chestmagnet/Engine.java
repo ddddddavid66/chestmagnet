@@ -63,12 +63,14 @@ public class Engine {
   public void logout(PlayerEvent.PlayerLoggedOutEvent e) {
     STATES.remove(e.getEntity().getUUID());
     Net.clearPlayer(e.getEntity().getUUID());
+    StructureJobs.cancel(e.getEntity().getUUID());
   }
 
   @SubscribeEvent
   public void stop(ServerStoppedEvent e) {
     STATES.clear();
     Net.clearAll();
+    StructureJobs.clear();
     if (ModList.get().isLoaded("lootr")) LootrCompat.clear();
   }
 
@@ -118,11 +120,13 @@ public class Engine {
     var players = e.getServer().getPlayerList().getPlayers();
     if (players.isEmpty()) return;
     long deadline = System.nanoTime() + Config.BUDGET.get() * 1000L;
+    StructureJobs.tick(e.getServer(), deadline);
     for (int n = 0; n < players.size(); n++) {
+      if (System.nanoTime() >= deadline) break;
       var p = players.get(Math.floorMod(playerCursor++, players.size()));
       if (!p.isAlive() || p.isSpectator()) continue;
       var magnet = active(p);
-      if (magnet.isEmpty()) continue;
+      if (magnet.isEmpty() || StructureJobs.blocksNormal(p, magnet)) continue;
       var state = STATES.computeIfAbsent(p.getUUID(), x -> new State());
       try {
         work(p, magnet, state, deadline);
@@ -217,24 +221,10 @@ public class Engine {
           continue;
         }
         // 先拿到真实物品再交给目标；异常中断时保留待核对缓存，不凭模拟结果复制物品。
-        var actual = inv.extractItem(slot, accepted, false);
-        if (actual.isEmpty()) continue;
-        Data.tag(m).put("Recovery", actual.save(new CompoundTag()));
-        Data.tag(m).putBoolean("RecoveryUncertain", true);
-        var rest = target.insert(actual, false);
-        Data.tag(m).remove("RecoveryUncertain");
-        int done = actual.getCount() - rest.getCount();
-        if (!rest.isEmpty()) {
-          Data.tag(m).put("Recovery", rest.save(new CompoundTag()));
-          Data.tag(m).putBoolean("RecoveryUncertain", true);
-          rest = inv.insertItem(slot, rest, false);
-          Data.tag(m).remove("RecoveryUncertain");
-        }
-        if (rest.isEmpty()) Data.tag(m).remove("Recovery");
-        else {
-          Data.tag(m).put("Recovery", rest.save(new CompoundTag()));
+        int done = Transfer.move(inv, slot, accepted, target, m);
+        if (Data.tag(m).contains("Recovery")) {
           Data.tag(m).putBoolean("Enabled", false);
-          s.status = "余量无法退回，已存入恢复缓存，请在配置中取回";
+          s.status = "余量或异常已保存至恢复缓存，磁铁暂停";
           notify(p, s);
           return;
         }

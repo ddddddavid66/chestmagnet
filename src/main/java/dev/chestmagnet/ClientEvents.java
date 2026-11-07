@@ -15,6 +15,18 @@ public final class ClientEvents {
   public static Net.Snapshot latest;
 
   @SubscribeEvent
+  public static void structureClick(
+      net.minecraftforge.client.event.InputEvent.InteractionKeyMappingTriggered e) {
+    if (!e.isUseItem() || !net.minecraft.client.gui.screens.Screen.hasControlDown()) return;
+    var mc = Minecraft.getInstance();
+    if (mc.player == null || mc.screen != null) return;
+    if (!mc.player.getMainHandItem().is(ChestMagnet.MAGNET.get()) && !mc.player.getOffhandItem().is(ChestMagnet.MAGNET.get())) return;
+    e.setCanceled(true);
+    e.setSwingHand(false);
+    Net.request(20, 0, new UUID(0, 0));
+  }
+
+  @SubscribeEvent
   public static void air(PlayerInteractEvent.LeftClickEmpty e) {
     var mc = Minecraft.getInstance();
     if (mc.screen != null
@@ -36,6 +48,17 @@ public final class ClientEvents {
       bus = Mod.EventBusSubscriber.Bus.MOD,
       value = Dist.CLIENT)
   public static class Setup {
+    @SubscribeEvent
+    public static void reload(
+        net.minecraftforge.client.event.RegisterClientReloadListenersEvent e) {
+      e.registerReloadListener(
+          (net.minecraft.server.packs.resources.ResourceManagerReloadListener)
+              manager -> {
+                if (Minecraft.getInstance().screen instanceof StructureScreen s)
+                  s.mesh.dirty = true;
+              });
+    }
+
     @SubscribeEvent
     public static void setup(FMLClientSetupEvent e) {
       e.enqueueWork(() -> MenuScreens.register(Net.MENU.get(), MagnetScreen::new));

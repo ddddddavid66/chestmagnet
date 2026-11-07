@@ -14,6 +14,27 @@
       "selectedTabStyle": "net.minecraft.ChatFormatting.GOLD；仅当前页",
       "rendering": "原生 GuiGraphics 与游戏控件；不提供虚构 HTML/CSS、Web 断点或色阶",
       "evidence": ["run/screenshots/2026-11-07_17.29.51.png", "run/screenshots/2026-11-07_17.29.53.png"]
+    },
+    "nativeSurfaces": {
+      "structureConfirmation": {
+        "version": "1.1.0",
+        "screenClass": "dev.chestmagnet.StructureScreen",
+        "sources": ["src/main/java/dev/chestmagnet/StructureScreen.java", "src/main/java/dev/chestmagnet/PreviewMesh.java"],
+        "visualLanguage": "沿用深灰面板、金色标题与像素直角边框、客户端原生字体和控件",
+        "panelWidth": "min(540, width - 16)",
+        "panelHeight": "min(360, height - 12)",
+        "unit": "Minecraft GUI 逻辑像素；不等同于离屏纹理或截图物理像素",
+        "layout": "顶部结构标题与全高度扫描范围警告；中部局部方块预览；底部状态、进度及确认/目的地模式/取消任务",
+        "preview": {
+          "renderer": "真实方块纹理图集与静态 VertexBuffer 缓存；数据变化时分批烘焙，不逐帧重建整模",
+          "renderTarget": "512×512 TextureTarget；缩放显示在面板预览区域",
+          "controls": "拖动旋转、滚轮缩放、剖切高度、重置视角、容器楼层",
+          "dynamicBlocks": "箱子等非 MODEL 渲染方块使用静态金色标记，不执行方块实体 renderer"
+        },
+        "scanBoundary": "扫描覆盖该水平范围的全部高度；局部预览及其剖切不限制扫描深度",
+        "evidence": ["docs/ui/structure-preview.png", "docs/ui/structure-rotated.png"],
+        "verificationScope": "两张截图已通过只读视觉审核，仅覆盖可见表现；不代表真实联机或物理输入操作验证通过"
+      }
     }
   },
   "narrative": {

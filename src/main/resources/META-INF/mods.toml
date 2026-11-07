@@ -3,7 +3,7 @@ loaderVersion="[47,)"
 license="MIT"
 [[mods]]
 modId="chestmagnet"
-version="1.0.0"
+version="1.1.0"
 displayName="宝箱磁铁"
 description='''自动收取附近储物箱与矿车，支持精妙背包、RS 和 Lootr。'''
 [[dependencies.chestmagnet]]

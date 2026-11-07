@@ -5,3 +5,8 @@ Minimal runtime GameTest: 2/2 passed (minimal-final.log).
 Client smoke: exit 0, two actual screenshots, selected-tab fix resolved.
 Release task: clean dist, successful; no verification classes in artifact.
 RS full-network live scenarios and dense-container FPS/TPS benchmark: NOT RUN.
+
+2026-11-08 1.1.0
+Linked GameTest: 9/9 passed; natural jungle/desert/outpost, deep/all-height scope, exclusions, full-target pause/resume, pending BE, revision invalidation, ticket cleanup.
+Native 3D snapshot renderer smoke passed; UI reviewer SHIP on screenshots only.
+Real Ctrl input/live GUI networking not fully manually verified; computer-use Java access denied.
