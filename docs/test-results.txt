@@ -1,0 +1,7 @@
+2026-11-07
+Forge 47.4.16 / Minecraft 1.20.1 / JDK 17
+Integration GameTest: 8/8 passed (gametest-final.log).
+Minimal runtime GameTest: 2/2 passed (minimal-final.log).
+Client smoke: exit 0, two actual screenshots, selected-tab fix resolved.
+Release task: clean dist, successful; no verification classes in artifact.
+RS full-network live scenarios and dense-container FPS/TPS benchmark: NOT RUN.

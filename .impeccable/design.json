@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-07T09:32:09Z",
+  "title": "游戏内设置界面：宝箱磁铁",
+  "extensions": {
+    "nativePlatform": {
+      "platform": "Minecraft Forge 1.20.1",
+      "screenClass": "dev.chestmagnet.MagnetScreen",
+      "source": "src/main/java/dev/chestmagnet/MagnetScreen.java",
+      "unit": "Minecraft GUI 逻辑像素；随客户端 GUI 缩放",
+      "panelWidth": "min(350, width - 12)",
+      "panelHeight": "min(230, height - 8)",
+      "widgets": ["net.minecraft.client.gui.components.Button", "net.minecraft.client.gui.components.EditBox"],
+      "selectedTabStyle": "net.minecraft.ChatFormatting.GOLD；仅当前页",
+      "rendering": "原生 GuiGraphics 与游戏控件；不提供虚构 HTML/CSS、Web 断点或色阶",
+      "evidence": ["run/screenshots/2026-11-07_17.29.51.png", "run/screenshots/2026-11-07_17.29.53.png"]
+    }
+  },
+  "narrative": {
+    "northStar": "原生 Minecraft 像素工具面板",
+    "overview": "原生 Minecraft Screen，Operate 模式。像素直角边框、深灰背景、米白正文，金色强调标题与当前页。两页：设置、排除容器。按钮采用原生 Button，键盘焦点与禁用状态由游戏提供。小窗口自适应宽度，列表分页，不显示无意义动画。",
+    "keyCharacteristics": [
+      "原生像素界面，不转换为网页或移动端样式。",
+      "配置操作紧凑直接，排除记录按页管理。",
+      "只让当前页标签使用选中金色。"
+    ],
+    "rules": [],
+    "dos": [
+      "Do 沿用原生字体、Button、EditBox 和键盘焦点。",
+      "Do 用当前页标签金色区分导航状态，保留标题金色的独立色值。",
+      "Do 保留分页、空状态说明和清空确认。"
+    ],
+    "donts": [
+      "Don't 给非当前页标签加选中金色。",
+      "Don't 引入网页/iOS 控件、圆角卡片或无意义动画。",
+      "Don't 将截图物理像素当作 GUI 逻辑尺寸。"
+    ]
+  }
+}
