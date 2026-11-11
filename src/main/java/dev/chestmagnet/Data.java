@@ -17,6 +17,11 @@ public final class Data {
     return Math.floorMod(tag(s).getInt("Mode"), 3);
   }
 
+  /** 旧磁铁不自动确认整座结构，必须由玩家明确开启。 */
+  public static boolean autoStructure(ItemStack s) {
+    return tag(s).getBoolean("AutoStructure");
+  }
+
   public static String modeName(int m) {
     return new String[] {"物品栏", "RS", "背包"}[Math.floorMod(m, 3)];
   }

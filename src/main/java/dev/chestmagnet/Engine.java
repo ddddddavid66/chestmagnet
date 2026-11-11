@@ -6,7 +6,6 @@ import net.minecraft.nbt.*;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.entity.vehicle.AbstractMinecartContainer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
@@ -30,6 +29,7 @@ public class Engine {
     final Map<String, Integer> slots = new HashMap<>();
     List<BlockPos> chunkPositions = List.of();
     int cx, cz, offset, sourceCursor;
+    SourceExtras.Scan specialScan;
     BlockPos center = BlockPos.ZERO;
     String range = "";
   }
@@ -49,6 +49,7 @@ public class Engine {
 
   public static void toggle(ServerPlayer p, ItemStack s) {
     Data.tag(s).putBoolean("Enabled", !Data.enabled(s));
+    if (!Data.enabled(s)) StructureJobs.stopForMagnet(p, s, "玩家关闭磁铁");
     p.getInventory().setChanged();
     message(
         p, "宝箱磁铁已" + (Data.enabled(s) ? "开启" : "关闭") + " · 吸收模式：" + Data.modeName(Data.mode(s)));
@@ -64,19 +65,34 @@ public class Engine {
     STATES.remove(e.getEntity().getUUID());
     Net.clearPlayer(e.getEntity().getUUID());
     StructureJobs.cancel(e.getEntity().getUUID());
+    AutoStructures.clear(e.getEntity().getUUID());
   }
+
+  @SubscribeEvent
+  public void clonePlayer(PlayerEvent.Clone e) {
+    if (e.getOriginal() instanceof ServerPlayer old && e.getEntity() instanceof ServerPlayer player)
+      { AutoStructures.copy(old, player); CompassTargets.copy(old, player); }
+  }
+
+  @SubscribeEvent
+  public void login(PlayerEvent.PlayerLoggedInEvent e) { if(e.getEntity() instanceof ServerPlayer p) CompassTargets.login(p); }
 
   @SubscribeEvent
   public void stop(ServerStoppedEvent e) {
     STATES.clear();
     Net.clearAll();
     StructureJobs.clear();
+    AutoStructures.clear();
     if (ModList.get().isLoaded("lootr")) LootrCompat.clear();
   }
 
   @SubscribeEvent
   public void block(PlayerInteractEvent.RightClickBlock e) {
-    interact(e, e.getLevel().getBlockEntity(e.getPos()));
+    interact(
+        e,
+        SourceExtras.special(e.getLevel().getBlockState(e.getPos()))
+            ? new SourceExtras.Special(e.getPos())
+            : e.getLevel().getBlockEntity(e.getPos()));
   }
 
   @SubscribeEvent
@@ -96,18 +112,16 @@ public class Engine {
     e.setCancellationResult(InteractionResult.SUCCESS);
     if (e.getLevel().isClientSide) return;
     var p = (ServerPlayer) e.getEntity();
-    if (!p.isShiftKeyDown()) {
-      toggle(p, s);
-      return;
-    }
+  }
+
+  static void exclude(ServerPlayer p, ItemStack s, Object source) {
     if (!Sources.eligible(source)) return;
     var ref = Sources.of(source);
-    String key = ref.key(p);
-    if (!Data.excluded(s, key) && Data.exclusions(s).size() >= Config.EXCLUSIONS.get()) {
-      message(p, "排除列表已满，请在配置页面移除记录");
+    if (!Data.excluded(s, ref.key(p)) && Data.exclusions(s).size() >= Config.EXCLUSIONS.get()) {
+      message(p, "排除列表已满");
       return;
     }
-    boolean excluded = Data.toggle(s, key, ref.label(p));
+    boolean excluded = Data.toggle(s, ref.key(p), ref.label(p));
     message(p, (excluded ? "已排除：" : "已取消排除：") + ref.label(p));
     p.getInventory().setChanged();
   }
@@ -120,6 +134,8 @@ public class Engine {
     var players = e.getServer().getPlayerList().getPlayers();
     if (players.isEmpty()) return;
     long deadline = System.nanoTime() + Config.BUDGET.get() * 1000L;
+    Net.flushPreviews(e.getServer());
+    AutoStructures.tick(e.getServer(), deadline);
     StructureJobs.tick(e.getServer(), deadline);
     for (int n = 0; n < players.size(); n++) {
       if (System.nanoTime() >= deadline) break;
@@ -129,14 +145,16 @@ public class Engine {
       if (magnet.isEmpty() || StructureJobs.blocksNormal(p, magnet)) continue;
       var state = STATES.computeIfAbsent(p.getUUID(), x -> new State());
       try {
-        work(p, magnet, state, deadline);
+        Faults.migrate(p, magnet);
+        if (Data.enabled(magnet)) work(p, magnet, state, deadline);
       } catch (Exception ex) {
         Data.tag(magnet).putBoolean("Enabled", false);
-        state.status = "兼容接口发生异常，已暂停；请查看日志及恢复缓存";
+        state.status = "处理已暂停：" + String.valueOf(ex.getMessage());
         org.slf4j.LoggerFactory.getLogger("chestmagnet")
             .error("Transfer paused for {}", p.getUUID(), ex);
-        message(p, state.status);
+        Faults.report(p, magnet, ex);
       }
+      Faults.clearContext();
       if (System.nanoTime() >= deadline) break;
     }
   }
@@ -152,6 +170,7 @@ public class Engine {
       s.cx = s.cz = 0;
       s.offset = 0;
       s.chunkPositions = List.of();
+      s.specialScan = null;
       s.magnet = id;
       s.dimension = dim;
       s.range = range;
@@ -163,6 +182,7 @@ public class Engine {
       notify(p, s);
       return;
     }
+    Faults.context(p, m, null, "发现来源");
     discover(p, m, s, deadline);
     var target = Destinations.get(p, Data.mode(m));
     if (target.unavailable()) {
@@ -170,6 +190,16 @@ public class Engine {
       notify(p, s);
       if (p.containerMenu instanceof MagnetMenu menu && p.level().getGameTime() % 20 == 0)
         Net.sync(p, menu.stack(), s.status);
+      return;
+    }
+    boolean hadPending = LootCapture.pending(m);
+    if (!LootCapture.drain(m, target, deadline)) {
+      s.status = "开箱产物待接收 · " + target.reason();
+      notify(p, s);
+      return;
+    }
+    if (hadPending) {
+      s.status = "开箱产物已处理";
       return;
     }
     var refs = new ArrayList<>(s.sources.entrySet());
@@ -186,18 +216,22 @@ public class Engine {
       var entry = refs.get(Math.floorMod(s.sourceCursor++, refs.size()));
       String key = entry.getKey();
       var ref = entry.getValue();
+      Faults.context(p, m, ref, "解析来源");
       var o = ref.resolve(p);
       if (o == null || !Sources.eligible(o) || !Sources.inside(p, m, o)) {
         s.sources.remove(key);
         s.empty.remove(key);
         continue;
       }
-      if (Data.excluded(m, ref.key(p)) || s.empty.getOrDefault(key, 0L) > tick) continue;
+      if (Faults.skipped(p, m, ref)
+          || Data.excluded(m, ref.key(p))
+          || s.empty.getOrDefault(key, 0L) > tick) continue;
       if (target.loops(ref, p)) {
         reason = "来源已接入目标 RS 网络";
         continue;
       }
-      var inv = Sources.inventory(p, o);
+      Faults.context(p, m, ref, "准备来源");
+      var inv = Sources.inventory(p, o, m);
       if (inv == null) continue;
       boolean nonempty = false;
       for (int visit = 0;
@@ -234,6 +268,10 @@ public class Engine {
           p.getInventory().setChanged();
         }
       }
+      Faults.stage("收尾");
+      if (!LootCapture.pending(m)) SourceExtras.finish(p, o, inv, m);
+      Faults.clearContext();
+      if (LootCapture.pending(m)) break;
       if (!nonempty && inv.getSlots() <= Config.PROBES.get()) s.empty.put(key, tick + 20);
     }
     s.status = moved > 0 ? "工作中 · 已处理 " + s.processed + " 件" : reason;
@@ -264,7 +302,10 @@ public class Engine {
               at.getX() + rx + 1,
               at.getY() + ry + 1,
               at.getZ() + rz + 1);
-      for (var cart : p.level().getEntitiesOfClass(AbstractMinecartContainer.class, box)) {
+      for (var cart :
+          p.level()
+              .getEntitiesOfClass(
+                  net.minecraft.world.entity.Entity.class, box, Sources::eligible)) {
         if (budget-- <= 0 || System.nanoTime() >= deadline) break;
         if (Sources.eligible(cart)) {
           var ref = Sources.of(cart);
@@ -277,7 +318,8 @@ public class Engine {
         minZ = (at.getZ() - rz) >> 4,
         maxZ = (at.getZ() + rz) >> 4;
     int width = maxX - minX + 1, depth = maxZ - minZ + 1;
-    if (s.chunkPositions.isEmpty() || s.offset >= s.chunkPositions.size()) {
+    if ((s.chunkPositions.isEmpty() || s.offset >= s.chunkPositions.size())
+        && s.specialScan == null) {
       if (p.level().getGameTime() % 10 != 0 && s.cx == 0 && s.cz == 0) return;
       var chunk = p.serverLevel().getChunkSource().getChunkNow(minX + s.cx, minZ + s.cz);
       s.cx++;
@@ -285,10 +327,20 @@ public class Engine {
         s.cx = 0;
         s.cz = (s.cz + 1) % depth;
       }
-      s.chunkPositions =
-          chunk == null ? List.of() : new ArrayList<>(chunk.getBlockEntities().keySet());
+      s.chunkPositions = chunk == null ? List.of() : new ArrayList<>(chunk.getBlockEntitiesPos());
       s.offset = 0;
+      if (chunk != null && SourceExtras.option(m, "CollectLocked"))
+        s.specialScan = new SourceExtras.Scan(chunk);
     }
+    if (s.specialScan != null
+        && s.specialScan.step(
+            o -> {
+              if (Sources.inside(p, m, o)) {
+                var ref = Sources.of(o);
+                s.sources.put(ref.key(p), ref);
+              }
+            },
+            deadline)) s.specialScan = null;
     while (s.offset < s.chunkPositions.size() && budget-- > 0 && System.nanoTime() < deadline) {
       var pos = s.chunkPositions.get(s.offset++);
       if (!p.level().hasChunkAt(pos)) continue;

@@ -1,5 +1,5 @@
 plugins { id 'java'; id 'net.minecraftforge.gradle' version '6.0.54' }
-version = '1.1.0'
+version = '1.2.3'
 group = 'dev.chestmagnet'
 base { archivesName = 'chestmagnet-forge-1.20.1' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
@@ -7,9 +7,9 @@ minecraft {
     mappings channel: 'official', version: '1.20.1'
     runs {
         configureEach { property 'mixin.env.remapRefMap', 'true'; property 'mixin.env.refMapRemappingFile', project.file('build/createSrgToMcp/output.srg').absolutePath; if (file('tools/assets').exists()) lazyToken('assets_root') { '../tools/assets' }; args '--mixin', 'chestmagnet.mixins.json'; workingDirectory project.file('run'); mods { chestmagnet { source sourceSets.main } } }
-        client { args '--username', 'MagnetTest', '--width', '1100', '--height', '760'; if(project.hasProperty('renderSmoke')) { property 'chestmagnet.smoke','true';property 'chestmagnet.renderSmoke','true' }; if(project.hasProperty('clientSmoke')) { args '--quickPlaySingleplayer','StructureSmoke'; property 'chestmagnet.smoke','true' } }
+        client { if(project.hasProperty('inputCheck')) property 'chestmagnet.inputCheck','true'; if(project.hasProperty('sourceSmoke')) {property 'chestmagnet.smoke','true';property 'chestmagnet.sourceSmoke','true'; if(project.hasProperty('errorSmoke')) property 'chestmagnet.errorSmoke','true'}; args '--username', 'MagnetTest', '--width', '1100', '--height', '760'; if(project.hasProperty('renderSmoke')) { property 'chestmagnet.smoke','true';property 'chestmagnet.renderSmoke','true' }; if(project.hasProperty('clientSmoke')) { args '--quickPlaySingleplayer','StructureSmoke'; property 'chestmagnet.smoke','true' } }
         server { args '--nogui' }
-        gameTestServer { property 'forge.enabledGameTestNamespaces', 'chestmagnet' }
+        gameTestServer { if(project.hasProperty('minimal')) workingDirectory project.file('run/minimal-120'); property 'forge.enabledGameTestNamespaces', 'chestmagnet' }
     }
 }
 repositories {
@@ -39,3 +39,20 @@ if (project.hasProperty('minimal')) sourceSets.main.java.exclude '**/MagnetTests
 else sourceSets.main.java.exclude '**/MinimalTests.java'
 
 if (!project.hasProperty('withCompass')) sourceSets.main.java.exclude '**/StructureTests.java'
+
+if(project.hasProperty("lockedFixtures")){dependencies { ["tetra:${project.findProperty('tetraVersion') ?: '6.12.0'}","mutil:6.2.0","aether-1.20.1:1.4.2-neoforge","aquamirae:6.API15","obscure_api:15"].each {runtimeOnly fg.deobf("local:${it}")} }}
+
+if(project.hasProperty("tetraPatches")){dependencies { ["tetra_modify:1.0.10","tetra_inherit:1.0.0"].each {runtimeOnly fg.deobf("local:${it}")} }}
+
+if(project.hasProperty("boosterVersion")){dependencies { runtimeOnly fg.deobf("local:rsbooster:${project.property('boosterVersion')}") }}
+
+if(project.hasProperty("rangeOnly")){ fileTree("src/verification/java").matching {include "**/*Tests.java"}.each { if(!(it.name in ["RsWirelessTests.java", "RsNetworkTests.java"])) sourceSets.main.java.exclude "**/${it.name}" } }
+
+if(project.hasProperty('compat123')) {
+ sourceSets.main.java.exclude '**/Client*Checks.java'
+ fileTree('src/verification/java').matching {include '**/*Tests.java'}.each {if(it.name != 'CompatibilityTests.java')sourceSets.main.java.exclude '**/'+it.name}
+ minecraft.runs.gameTestServer.workingDirectory = project.file('run/compat123-'+(project.findProperty('compassCase') ?: 'none'))
+ if(project.hasProperty('compassVersion')) dependencies {runtimeOnly fg.deobf("local:compatcompass:${project.property('compassVersion')}")}
+ if(project.hasProperty('goetyVersion')) dependencies {runtimeOnly fg.deobf("local:compatgoety:${project.property('goetyVersion')}")}
+ if(project.hasProperty('oldStorage')) { configurations.runtimeClasspath.exclude group:'local', module:'backpacks'; configurations.runtimeClasspath.exclude group:'local', module:'core'; dependencies {runtimeOnly fg.deobf('local:compatbackpacks:old'); runtimeOnly fg.deobf('local:compatcore:old')} }
+}

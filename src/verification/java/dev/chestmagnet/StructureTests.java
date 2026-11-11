@@ -23,6 +23,53 @@ public class StructureTests {
             .getServer()
             .getLevel(
                 ResourceKey.create(
+                    Registries.DIMENSION, new ResourceLocation("chestmagnet:natural")));
+    var warm = new java.util.ArrayList<ChunkPos>();
+    var token = java.util.UUID.randomUUID();
+    for (String name : List.of("jungle_pyramid", "desert_pyramid", "pillager_outpost")) {
+      var holder =
+          level
+              .registryAccess()
+              .registryOrThrow(Registries.STRUCTURE)
+              .getHolderOrThrow(
+                  ResourceKey.create(
+                      Registries.STRUCTURE, new ResourceLocation("minecraft", name)));
+      var located =
+          level
+              .getChunkSource()
+              .getGenerator()
+              .findNearestMapStructure(
+                  level, HolderSet.direct(holder), new BlockPos(0, 64, 0), 100, false);
+      var cp = new ChunkPos(located.getFirst());
+      var start = level.getChunk(cp.x, cp.z).getStartForStructure(holder.value());
+      var box = StructureJobs.bounds(start);
+      for (int x = (box.minX() - 16) >> 4; x <= (box.maxX() + 16) >> 4; x++)
+        for (int z = (box.minZ() - 16) >> 4; z <= (box.maxZ() + 16) >> 4; z++) {
+          var at = new ChunkPos(x, z);
+          level.getChunk(x, z);
+          level.getChunkSource().addRegionTicket(StructureJobs.TICKET, at, 0, token);
+          warm.add(at);
+        }
+    }
+    // 实体读盘在后续服务器tick提交，测试不能在同一tick忙等冒充已读盘。
+    h.runAfterDelay(
+        60,
+        () -> {
+          try {
+            verifyNaturalStructures(h);
+          } finally {
+            for (var at : warm)
+              level.getChunkSource().removeRegionTicket(StructureJobs.TICKET, at, 0, token);
+          }
+        });
+  }
+
+  private static void verifyNaturalStructures(GameTestHelper h) {
+    var level =
+        h.getLevel()
+            .getServer()
+            .getLevel(
+                ResourceKey.create(
                     Registries.DIMENSION, new ResourceLocation("chestmagnet", "natural")));
     h.assertTrue(level != null, "natural dimension");
     for (String name : List.of("jungle_pyramid", "desert_pyramid", "pillager_outpost")) {

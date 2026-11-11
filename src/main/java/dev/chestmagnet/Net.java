@@ -8,6 +8,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.*;
+import net.minecraftforge.common.ForgeMod;
 import net.minecraftforge.common.extensions.IForgeMenuType;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.network.*;
@@ -17,7 +19,7 @@ import net.minecraftforge.registries.*;
 public final class Net {
   private static final SimpleChannel CHANNEL =
       NetworkRegistry.newSimpleChannel(
-          new ResourceLocation(ChestMagnet.ID, "main"), () -> "2", "2"::equals, "2"::equals);
+          new ResourceLocation(ChestMagnet.ID, "main"), () -> "5", "5"::equals, "5"::equals);
   static final DeferredRegister<MenuType<?>> MENUS =
       DeferredRegister.create(ForgeRegistries.MENU_TYPES, ChestMagnet.ID);
   public static final RegistryObject<MenuType<MagnetMenu>> MENU =
@@ -30,9 +32,31 @@ public final class Net {
   public record Request(int action, int value, UUID identity) {}
 
   public record Snapshot(CompoundTag data, String status, int maxRadius) {}
+  public record PreviewRequest(UUID nonce, int revision, int centerX, int centerZ, int height) {}
 
   public static void init() {
     MENUS.register(FMLJavaModLoadingContext.get().getModEventBus());
+    CHANNEL.registerMessage(4, PreviewRequest.class,
+        (m, b) -> { b.writeUUID(m.nonce()); b.writeInt(m.revision()); b.writeInt(m.centerX());
+          b.writeInt(m.centerZ()); b.writeInt(m.height()); },
+        b -> new PreviewRequest(b.readUUID(), b.readInt(), b.readInt(), b.readInt(), b.readInt()),
+        (m, c) -> {
+          var ctx = c.get();
+          ctx.enqueueWork(() -> {
+            var p = ctx.getSender();
+            if (p != null) QUEUED_PREVIEWS.put(p.getUUID(), m);
+          });
+          ctx.setPacketHandled(true);
+        }, Optional.of(NetworkDirection.PLAY_TO_SERVER));
+    CHANNEL.registerMessage(
+        3, Faults.Report.class,
+        (m, b) -> { b.writeUUID(m.id()); b.writeUUID(m.magnet()); b.writeUtf(m.text(), 24000); },
+        b -> new Faults.Report(b.readUUID(), b.readUUID(), b.readUtf(24000)),
+        (m, c) -> {
+          var ctx = c.get();
+          ctx.enqueueWork(() -> ErrorScreen.receive(m));
+          ctx.setPacketHandled(true);
+        }, Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     CHANNEL.registerMessage(
         2,
         CompoundTag.class,
@@ -80,28 +104,67 @@ public final class Net {
     CHANNEL.send(PacketDistributor.PLAYER.with(() -> p), data);
   }
 
+  public static void sendReport(ServerPlayer p, Faults.Report report) {
+    // 限制网络正文；完整异常由服务端报告保留，客户端只保存本玩家的副本。
+    String text = report.text();
+    if (text.length() > 24000) text = text.substring(0, 23800) + "\n[客户端显示已截断；完整内容见服务端日志]";
+    CHANNEL.send(PacketDistributor.PLAYER.with(() -> p),
+        new Faults.Report(report.id(), report.magnet(), text));
+  }
+
   public static void request(int action, int value, UUID id) {
     CHANNEL.sendToServer(new Request(action, value, id));
   }
 
+  public static void previewRequest(UUID nonce, int revision, int x, int z, int y) {
+    CHANNEL.sendToServer(new PreviewRequest(nonce, revision, x, z, y));
+  }
+
   public static void sync(ServerPlayer p, ItemStack s, String status) {
+    var data = Data.tag(s).copy();
+    for (String key : List.of("Quarantined", "PendingLoot", "Recovery", "OperationEvidence",
+        "UncertainBatch", "FaultCounts", "PendingOrigin")) data.remove(key);
+    // 菜单只需要是否存在安全缓存，不需要其中物品，更不能发送隔离批次的原始NBT。
+    if (Data.tag(s).contains("Recovery")) data.put("Recovery", new CompoundTag());
+    var original = Data.tag(s).getList("FaultSkipped", 10);
+    var visible = new ListTag();
+    for (int i = 0; i < Math.min(256, original.size()); i++) {
+      var entry = new CompoundTag();
+      var old = original.getCompound(i);
+      String label = old.getString("Label");
+      entry.putString("Label", label.substring(0, Math.min(256, label.length())));
+      if (old.hasUUID("Report")) entry.putUUID("Report", old.getUUID("Report"));
+      visible.add(entry);
+    }
+    data.put("FaultSkipped", visible);
+    data.putInt("FaultSkippedTotal", original.size());
+    data.put("StructureTask", StructureJobs.taskSnapshot(p, s));
     CHANNEL.send(
         PacketDistributor.PLAYER.with(() -> p),
-        new Snapshot(Data.tag(s).copy(), status, Config.RADIUS.get()));
+        new Snapshot(data, status, Config.RADIUS.get()));
   }
 
   private static final Map<UUID, Long> OPENED = new HashMap<>();
+  private static final Map<UUID, Long> ACTIONS = new HashMap<>();
+  private static final Map<UUID, Long> PREVIEWS = new HashMap<>();
+  private static final Map<UUID, PreviewRequest> QUEUED_PREVIEWS = new HashMap<>();
 
   public static void clearPlayer(UUID id) {
     OPENED.remove(id);
+    ACTIONS.remove(id);
+    PREVIEWS.remove(id);
+    QUEUED_PREVIEWS.remove(id);
   }
 
   public static void clearAll() {
     OPENED.clear();
+    ACTIONS.clear();
+    PREVIEWS.clear();
+    QUEUED_PREVIEWS.clear();
   }
 
   private static void handle(ServerPlayer p, Request q) {
-    if (p == null || p.isSpectator()) return;
+    if (p == null || !p.isAlive() || p.isSpectator()) return;
     if (q.action() >= 20) {
       if (q.action() == 20) {
         long now = p.level().getGameTime();
@@ -111,12 +174,40 @@ public final class Net {
       StructureJobs.request(p, q);
       return;
     }
+    if (q.action == 11 || q.action == 12) {
+      var item = held(p, q.identity, true);
+      if (item.isEmpty() || !allowAction(p)) return;
+      if (q.action == 11) Engine.toggle(p, item);
+      else {
+        var aim = aim(p);
+        if (Sources.eligible(aim.source())) Engine.exclude(p, item, aim.source());
+      }
+      return;
+    }
+    if (q.action >= 13 && q.action <= 17) {
+      var item = held(p, q.identity, false);
+      if (item.isEmpty() && p.containerMenu instanceof MagnetMenu menu
+          && menu.stillValid(p) && menu.identity.equals(q.identity)) item = menu.stack();
+      if (item.isEmpty() || !allowAction(p)) return;
+      if (q.action == 13) Faults.clearSkip(item, q.value);
+      if (q.action == 15) {
+        Data.tag(item).putBoolean("AutoStructure", !Data.autoStructure(item));
+        if (!Data.autoStructure(item)) StructureJobs.stopForMagnet(p, item, "玩家关闭自动结构收取");
+      }
+      if (q.action == 16 || q.action == 17) {
+        try { StructureJobs.control(p, item, q.action == 17); }
+        catch (IllegalArgumentException ex) { p.displayClientMessage(Component.literal(ex.getMessage()), false); }
+      }
+      p.getInventory().setChanged();
+      sync(p, item, Engine.status(p));
+      return;
+    }
     if (q.action == 0) {
       long now = p.level().getGameTime();
-      if (!p.isShiftKeyDown() || now - OPENED.getOrDefault(p.getUUID(), -100L) < 10) return;
+      if (!aim(p).air() || now - OPENED.getOrDefault(p.getUUID(), -100L) < 10) return;
       boolean off = !p.getMainHandItem().is(ChestMagnet.MAGNET.get());
-      var s = off ? p.getOffhandItem() : p.getMainHandItem();
-      if (!s.is(ChestMagnet.MAGNET.get())) return;
+      var s = held(p, q.identity, true);
+      if (s.isEmpty()) return;
       UUID id = Data.id(s);
       OPENED.put(p.getUUID(), now);
       NetworkHooks.openScreen(
@@ -137,7 +228,7 @@ public final class Net {
     var t = Data.tag(s);
     switch (q.action) {
       case 1 -> t.putInt("Mode", Math.floorMod(q.value, 3));
-      case 2 -> t.putBoolean("Enabled", !Data.enabled(s));
+      case 2 -> Engine.toggle(p, s);
       case 3, 4, 5 ->
           t.putInt(
               new String[] {"X", "Y", "Z"}[q.action - 3],
@@ -149,13 +240,23 @@ public final class Net {
           t.put("Excluded", list);
         }
       }
+      case 9 -> t.putBoolean("CollectLocked", !SourceExtras.option(s, "CollectLocked"));
+      case 10 -> t.putBoolean("CollectFrames", !SourceExtras.option(s, "CollectFrames"));
       case 7 -> t.remove("Excluded");
       case 8 -> {
         if (t.contains("Recovery") && !t.getBoolean("RecoveryUncertain")) {
           var stack = ItemStack.of(t.getCompound("Recovery"));
-          var left = Destinations.get(p, 0).insert(stack, false);
-          if (left.isEmpty()) t.remove("Recovery");
-          else t.put("Recovery", left.save(new CompoundTag()));
+          Faults.context(p, s, null, "取回安全恢复缓存");
+          t.putBoolean("RecoveryUncertain", true);
+          try {
+            var left = Destinations.get(p, 0).insert(stack, false);
+            t.remove("RecoveryUncertain");
+            if (left.isEmpty()) t.remove("Recovery");
+            else t.put("Recovery", left.save(new CompoundTag()));
+          } catch (Exception ex) {
+            t.putBoolean("Enabled", false);
+            Faults.report(p, s, ex);
+          } finally { Faults.clearContext(); }
         }
       }
       default -> {
@@ -164,5 +265,66 @@ public final class Net {
     }
     p.getInventory().setChanged();
     sync(p, s, Engine.status(p));
+  }
+
+  private static boolean allowAction(ServerPlayer p) {
+    long now = p.level().getGameTime();
+    if (now - ACTIONS.getOrDefault(p.getUUID(), -100L) < 4) return false;
+    ACTIONS.put(p.getUUID(), now);
+    return true;
+  }
+
+  private static boolean allowPreview(ServerPlayer p) {
+    long now = p.level().getGameTime();
+    if (now - PREVIEWS.getOrDefault(p.getUUID(), -100L) < 5) return false;
+    PREVIEWS.put(p.getUUID(), now);
+    return true;
+  }
+
+  /** 合并快速拖动为最后一个视窗；不能丢掉客户端已经在等待的新revision。 */
+  static void flushPreviews(net.minecraft.server.MinecraftServer server) {
+    for (var entry : List.copyOf(QUEUED_PREVIEWS.entrySet())) {
+      var p = server.getPlayerList().getPlayer(entry.getKey());
+      if (p == null) { QUEUED_PREVIEWS.remove(entry.getKey()); continue; }
+      if (!allowPreview(p)) continue;
+      QUEUED_PREVIEWS.remove(entry.getKey());
+      StructureJobs.previewRequest(p, entry.getValue());
+    }
+  }
+
+  private static ItemStack held(ServerPlayer p, UUID identity, boolean allowUnassigned) {
+    var s = StructureJobs.held(p);
+    if (!s.is(ChestMagnet.MAGNET.get())) return ItemStack.EMPTY;
+    // 初次使用可能尚未收到服务端分配的ID；无UI的即时动作仅允许当前真实手持磁铁。
+    if (allowUnassigned && identity.equals(new UUID(0, 0))) return s;
+    return Data.id(s).equals(identity) ? s : ItemStack.EMPTY;
+  }
+
+  private record Aim(boolean air, Object source) {}
+
+  /** 客户端只发动作，不接受客户端给出的坐标；服务端以真实视线和触及距离重算目标。 */
+  private static Aim aim(ServerPlayer p) {
+    double blockReach = Math.max(0, p.getAttributeValue(ForgeMod.BLOCK_REACH.get()));
+    double entityReach = Math.max(0, p.getAttributeValue(ForgeMod.ENTITY_REACH.get()));
+    var hit = p.pick(blockReach, 0, false);
+    var eye = p.getEyePosition();
+    var end = eye.add(p.getViewVector(0).scale(entityReach));
+    double closest = hit.getType() == HitResult.Type.MISS
+        ? entityReach * entityReach : Math.min(entityReach * entityReach, eye.distanceToSqr(hit.getLocation()));
+    net.minecraft.world.entity.Entity selected = null;
+    var area = p.getBoundingBox().expandTowards(end.subtract(eye)).inflate(1);
+    for (var entity : p.level().getEntities(p, area, e -> e.isAlive() && !e.isSpectator() && e.isPickable())) {
+      var box = entity.getBoundingBox().inflate(entity.getPickRadius());
+      var point = box.clip(eye, end);
+      double distance = box.contains(eye) ? 0 : point.map(eye::distanceToSqr).orElse(Double.MAX_VALUE);
+      if (distance < closest) { closest = distance; selected = entity; }
+    }
+    if (selected != null) return new Aim(false, selected);
+    if (hit instanceof BlockHitResult block && hit.getType() == HitResult.Type.BLOCK) {
+      var at = block.getBlockPos();
+      return new Aim(false, SourceExtras.special(p.level().getBlockState(at))
+          ? new SourceExtras.Special(at) : p.level().getBlockEntity(at));
+    }
+    return new Aim(true, null);
   }
 }

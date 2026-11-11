@@ -2,9 +2,11 @@ package dev.chestmagnet;
 
 import com.refinedmods.refinedstorage.RS;
 import com.refinedmods.refinedstorage.api.network.*;
+import com.refinedmods.refinedstorage.api.network.node.INetworkNode;
 import com.refinedmods.refinedstorage.api.network.security.Permission;
 import com.refinedmods.refinedstorage.api.util.Action;
 import com.refinedmods.refinedstorage.apiimpl.network.node.ExternalStorageNetworkNode;
+import com.refinedmods.refinedstorage.apiimpl.network.node.WirelessTransmitterNetworkNode;
 import com.refinedmods.refinedstorage.item.NetworkItem;
 import com.refinedmods.refinedstorage.util.NetworkUtils;
 import java.util.*;
@@ -21,6 +23,21 @@ public final class RsCompat {
           "refinedstorage:creative_wireless_grid",
           "refinedstorageaddons:wireless_crafting_grid",
           "refinedstorageaddons:creative_wireless_crafting_grid");
+
+  static boolean covers(ServerPlayer player, INetworkNode node) {
+    if (!node.isActive() || !(node instanceof IWirelessTransmitter transmitter)) return false;
+    // 调用真实 getRange，保留无限卡等扩展注入；坐标与原生 NetworkItemManager 一致。
+    if (transmitter.getDimension().equals(player.level().dimension())) {
+      var origin = transmitter.getOrigin();
+      double range = transmitter.getRange();
+      if (range > 0
+          && player.distanceToSqr(origin.getX(), origin.getY(), origin.getZ()) < range * range)
+        return true;
+    }
+    // 仅安装了维度卡的已激活原生发送器可跨维度，强加载本身不等于无线授权。
+    return node instanceof WirelessTransmitterNetworkNode wireless
+        && BoosterCompat.crossDimension(wireless);
+  }
 
   public static Destinations.Target target(ServerPlayer p) {
     String error = "未携带已绑定无线网格，请切换背包/物品栏";
@@ -40,19 +57,17 @@ public final class RsCompat {
         error = "RS 网络离线";
         continue;
       }
-      boolean range =
-          n.getNodeGraph().all().stream()
-              .map(INetworkNodeGraphEntry::getNode)
-              .anyMatch(
-                  node ->
-                      node.isActive()
-                          && node instanceof IWirelessTransmitter w
-                          && w.getDimension().equals(p.level().dimension())
-                          && p.distanceToSqr(
-                                  w.getOrigin().getX() + .5,
-                                  w.getOrigin().getY() + .5,
-                                  w.getOrigin().getZ() + .5)
-                              < (double) w.getRange() * w.getRange());
+      boolean range;
+      try {
+        range =
+            n.getNodeGraph().all().stream()
+                .map(INetworkNodeGraphEntry::getNode)
+                .anyMatch(node -> covers(p, node));
+      } catch (IllegalStateException e) {
+        // 兼容查询失败属于目的地不可用；尚未提取，不应把当前容器隔离成错误来源。
+        error = e.getMessage();
+        continue;
+      }
       if (!range) {
         error = "超出 RS 无线覆盖范围";
         continue;
@@ -67,6 +82,8 @@ public final class RsCompat {
                   .getWirelessCraftingGrid()
                   .getUseEnergy()
               : RS.SERVER_CONFIG.getWirelessGrid().getUseEnergy();
+      // Addons 合成网格继承原版 ItemGridHandler：插入费仍读取 RS 的 getInsertUsage。
+      // 它自己的配置只决定是否耗电，不能误用 craftUsage/openUsage 代替插入费。
       int fee =
           id.contains("creative") || !useEnergy
               ? 0

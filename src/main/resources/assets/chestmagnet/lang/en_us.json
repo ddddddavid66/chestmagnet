@@ -1,1 +1,8 @@
-{"item.chestmagnet.chest_magnet":"Chest Magnet"}
+{
+  "item.chestmagnet.chest_magnet": "Chest Magnet",
+  "key.categories.chestmagnet": "Chest Magnet",
+  "key.chestmagnet.toggle": "Toggle magnet",
+  "key.chestmagnet.settings": "Open settings (aim at air)",
+  "key.chestmagnet.exclude": "Exclude / include source",
+  "key.chestmagnet.structure": "Collect compass structure"
+}

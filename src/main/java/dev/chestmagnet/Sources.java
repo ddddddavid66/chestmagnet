@@ -22,7 +22,11 @@ public final class Sources {
         var e = p.serverLevel().getEntity(entity);
         return e != null && e.isAlive() ? e : null;
       }
-      return p.serverLevel().hasChunkAt(pos) ? p.serverLevel().getBlockEntity(pos) : null;
+      return p.serverLevel().hasChunkAt(pos)
+          ? (SourceExtras.special(p.level().getBlockState(pos))
+              ? new SourceExtras.Special(pos)
+              : p.serverLevel().getBlockEntity(pos))
+          : null;
     }
 
     public String key(ServerPlayer p) {
@@ -60,6 +64,14 @@ public final class Sources {
 
   private static BlockPos otherHalf(ServerPlayer p, BlockPos pos) {
     var s = p.level().getBlockState(pos);
+    if (SourceExtras.blockId(p, pos).equals("tetra:forged_container")) {
+      var other = SourceExtras.tetraOther(p, pos);
+      return other != null
+              && p.level().hasChunkAt(other)
+              && p.level().getBlockState(other).is(s.getBlock())
+          ? other
+          : null;
+    }
     if (s.getBlock() instanceof ChestBlock
         && s.hasProperty(ChestBlock.TYPE)
         && s.getValue(ChestBlock.TYPE) != ChestType.SINGLE) {
@@ -76,10 +88,12 @@ public final class Sources {
   }
 
   public static boolean eligible(Object o) {
+    if (o instanceof SourceExtras.Special) return true;
     if (o instanceof Entity e) {
       String id =
           net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES.getKey(e.getType()).toString();
-      return e instanceof MinecartChest
+      return e instanceof net.minecraft.world.entity.decoration.ItemFrame
+          || e instanceof MinecartChest
           || e instanceof MinecartHopper
           || (e instanceof AbstractMinecartContainer && id.startsWith("lootr:"));
     }
@@ -90,7 +104,10 @@ public final class Sources {
         || id.getNamespace().startsWith("sophisticated")
         || id.getNamespace().startsWith("refinedstorage")) return false;
     if (id.getNamespace().equals("lootr")) return b instanceof Container;
-    return b instanceof ChestBlockEntity
+    return SourceExtras.known(b)
+        || b instanceof ChestBlockEntity
+        || b instanceof BrewingStandBlockEntity
+        || ChurchContainers.known(b)
         || b instanceof BarrelBlockEntity
         || b instanceof ShulkerBoxBlockEntity
         || b.getBlockState().is(BlockTags.create(new ResourceLocation("forge:chests")))
@@ -98,21 +115,28 @@ public final class Sources {
   }
 
   public static Ref of(Object o) {
-    return o instanceof Entity e
-        ? new Ref(null, e.getUUID())
-        : new Ref(((BlockEntity) o).getBlockPos(), null);
+    return o instanceof Entity e ? new Ref(null, e.getUUID()) : new Ref(SourceExtras.pos(o), null);
   }
 
   public static boolean inside(
       ServerPlayer p, net.minecraft.world.item.ItemStack magnet, Object o) {
-    BlockPos at = o instanceof Entity e ? e.blockPosition() : ((BlockEntity) o).getBlockPos(),
-        center = p.blockPosition();
+    BlockPos at = SourceExtras.pos(o), center = p.blockPosition();
     return Math.abs((long) at.getX() - center.getX()) <= Data.radius(magnet, "X")
         && Math.abs((long) at.getY() - center.getY()) <= Data.radius(magnet, "Y")
         && Math.abs((long) at.getZ() - center.getZ()) <= Data.radius(magnet, "Z");
   }
 
   public static IItemHandler inventory(ServerPlayer p, Object o) {
+    return inventory(p, o, null);
+  }
+
+  public static IItemHandler inventory(
+      ServerPlayer p, Object o, net.minecraft.world.item.ItemStack magnet) {
+    if (o instanceof SourceExtras.Special
+        || o instanceof net.minecraft.world.entity.decoration.ItemFrame
+        || (o instanceof BlockEntity b && SourceExtras.known(b)))
+      return SourceExtras.inventory(p, o, magnet);
+    if (o instanceof BlockEntity be && ChurchContainers.known(be)) return ChurchContainers.inventory(p, be, magnet);
     String ns =
         o instanceof Entity e
             ? net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES
@@ -126,7 +150,9 @@ public final class Sources {
       Container c = LootrCompat.inventory(p, o);
       return c == null ? null : new InvWrapper(c);
     }
-    if (o instanceof BaseContainerBlockEntity b && !b.canOpen(p)) return null;
+    if (o instanceof BaseContainerBlockEntity b
+        && !SourceExtras.option(magnet, "CollectLocked")
+        && !b.canOpen(p)) return null;
     if (o instanceof ChestBlockEntity chest) {
       var state = chest.getBlockState();
       if (state.hasProperty(ChestBlock.TYPE)
@@ -139,7 +165,9 @@ public final class Sources {
       if (c instanceof CompoundContainer pair) {
         for (var at : of(o).members(p)) {
           var b = p.level().getBlockEntity(at);
-          if (b instanceof BaseContainerBlockEntity lock && !lock.canOpen(p)) return null;
+          if (b instanceof BaseContainerBlockEntity lock
+              && !SourceExtras.option(magnet, "CollectLocked")
+              && !lock.canOpen(p)) return null;
         }
       }
       for (var at : of(o).members(p))

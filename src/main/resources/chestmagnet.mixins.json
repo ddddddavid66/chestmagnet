@@ -1,1 +1,1 @@
-{"required":true,"minVersion":"0.8","package":"dev.chestmagnet.mixin","compatibilityLevel":"JAVA_17","mixins":["LootrMenuMixin"],"injectors":{"defaultRequire":1}}
+{"required": true, "minVersion": "0.8", "package": "dev.chestmagnet.mixin", "compatibilityLevel": "JAVA_17", "mixins": ["LootrMenuMixin", "DropCaptureMixin", "TetraDropMixin", "UnifiedCompassMixin", "OriginalCompassWorkerMixin", "OriginalCompassItemMixin"], "injectors": {"defaultRequire": 1}, "plugin": "dev.chestmagnet.mixin.CompassMixinPlugin"}

@@ -8,11 +8,20 @@ import net.minecraftforge.items.IItemHandler;
 public final class Transfer {
   static int move(
       IItemHandler inv, int slot, int accepted, Destinations.Target target, ItemStack magnet) {
+    Faults.stage("实际提取槽位 " + slot);
+    var evidence = new CompoundTag();
+    evidence.putInt("Slot", slot);
+    evidence.put("Before", inv.getStackInSlot(slot).save(new CompoundTag()));
+    Data.tag(magnet).put("OperationEvidence", evidence);
     var actual = inv.extractItem(slot, accepted, false);
-    if (actual.isEmpty()) return 0;
+    if (actual.isEmpty()) {
+      Data.tag(magnet).remove("OperationEvidence");
+      return 0;
+    }
     var t = Data.tag(magnet);
     t.put("Recovery", actual.save(new CompoundTag()));
     t.putBoolean("RecoveryUncertain", true);
+    Faults.stage("实际接收槽位 " + slot);
     var left = target.insert(actual, false);
     t.remove("RecoveryUncertain");
     int count = actual.getCount() - left.getCount();
@@ -27,6 +36,7 @@ public final class Transfer {
       t.put("Recovery", left.save(new CompoundTag()));
       t.putBoolean("Enabled", false);
     }
+    t.remove("OperationEvidence");
     return count;
   }
 }

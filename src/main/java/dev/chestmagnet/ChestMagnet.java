@@ -41,8 +41,7 @@ public class ChestMagnet {
     @Override
     public InteractionResultHolder<ItemStack> use(
         Level level, Player player, InteractionHand hand) {
-      if (!level.isClientSide && !player.isShiftKeyDown())
-        Engine.toggle((net.minecraft.server.level.ServerPlayer) player, player.getItemInHand(hand));
+      // 实际动作只由可改绑的客户端按下事件发送，原版use不再重复启停。
       return InteractionResultHolder.sidedSuccess(player.getItemInHand(hand), level.isClientSide);
     }
 
@@ -51,8 +50,8 @@ public class ChestMagnet {
         ItemStack stack, Level level, List<Component> lines, TooltipFlag flag) {
       lines.add(Component.literal(Data.enabled(stack) ? "§a已开启" : "§7已关闭"));
       lines.add(Component.literal("§6吸收模式：" + Data.modeName(Data.mode(stack))));
-      lines.add(Component.literal("§7右键：启停 / 潜行左键空气：设置"));
-      lines.add(Component.literal("§7潜行右键容器或储物矿车：排除"));
+      if (net.minecraftforge.fml.loading.FMLEnvironment.dist == net.minecraftforge.api.distmarker.Dist.CLIENT)
+        ClientEvents.tooltip(lines);
     }
   }
 }
