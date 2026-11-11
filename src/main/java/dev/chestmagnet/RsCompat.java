@@ -39,10 +39,19 @@ public final class RsCompat {
         && BoosterCompat.crossDimension(wireless);
   }
 
+  static List<ItemStack> terminals(ServerPlayer player) {
+    List<ItemStack> stacks = new ArrayList<>();
+    for (int slot = 0; slot < 36; slot++) stacks.add(player.getInventory().getItem(slot));
+    stacks.add(player.getOffhandItem());
+    // 可选 API 隔离，缺少 Curios 时不加载桥接类。
+    if (net.minecraftforge.fml.ModList.get().isLoaded("curios"))
+      stacks.addAll(CuriosCompat.terminals(player));
+    return stacks;
+  }
+
   public static Destinations.Target target(ServerPlayer p) {
     String error = "未携带已绑定无线网格，请切换背包/物品栏";
-    for (int i = 0; i < 37; i++) {
-      ItemStack s = i == 36 ? p.getOffhandItem() : p.getInventory().getItem(i);
+    for (ItemStack s : terminals(p)) {
       String id = String.valueOf(ForgeRegistries.ITEMS.getKey(s.getItem()));
       if (!IDS.contains(id) || !(s.getItem() instanceof NetworkItem item)) continue;
       INetwork[] found = {null};
@@ -93,9 +102,9 @@ public final class RsCompat {
         error = "RS 无线网格电量不足";
         continue;
       }
-      Set<Object> storages = Collections.newSetFromMap(new IdentityHashMap<>());
-      storages.addAll(n.getItemStorageCache().getStorages());
       return new Destinations.Target() {
+        private Set<Object> storages;
+
         public ItemStack insert(ItemStack stack, boolean simulate) {
           if (fee > 0 && energy.extractEnergy(fee, true) < fee) return stack;
           var left =
@@ -117,9 +126,18 @@ public final class RsCompat {
                   && ext.getNetwork() == n
                   && ext.getFacingBlockEntity() != null
                   && source.members(player).contains(ext.getFacingBlockEntity().getBlockPos())
-                  && ext.getItemStorages().stream().anyMatch(storages::contains)) return true;
+                  && sharesStorage(ext)) return true;
             }
           return false;
+        }
+
+        private boolean sharesStorage(ExternalStorageNetworkNode ext) {
+          // 仅发现实际外部存储连接时构建防回流集合。
+          if (storages == null) {
+            storages = Collections.newSetFromMap(new IdentityHashMap<>());
+            storages.addAll(n.getItemStorageCache().getStorages());
+          }
+          return ext.getItemStorages().stream().anyMatch(storages::contains);
         }
 
         public String reason() {

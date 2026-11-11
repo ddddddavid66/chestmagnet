@@ -142,6 +142,7 @@ public final class RsNetworkTests {
           "fixture requires nonzero native insert fee");
       terminal("refinedstorage:wireless_grid", Items.DIAMOND, 11);
       terminal("refinedstorageaddons:wireless_crafting_grid", Items.EMERALD, 7);
+      curiosTerminal();
       noCard();
       deniedPermission();
       powerFailure();
@@ -161,6 +162,53 @@ public final class RsNetworkTests {
       remote.getInventory().clearContent();
       binder.getInventory().clearContent();
       feedPower = false;
+    }
+
+    private void curiosTerminal() {
+      var previous = remote.getInventory().getItem(0);
+      remote.getInventory().clearContent();
+      remote.setItemInHand(InteractionHand.OFF_HAND, ItemStack.EMPTY);
+      var inventory = top.theillusivec4.curios.api.CuriosApi.getCuriosInventory(remote).orElseThrow(IllegalStateException::new);
+      var original = new java.util.HashMap<>(inventory.getCurios());
+      try {
+        var first = new top.theillusivec4.curios.common.inventory.CurioStacksHandler(
+            inventory, "a_test", 2, true, true, true,
+            top.theillusivec4.curios.api.type.capability.ICurio.DropRule.DEFAULT);
+        var last = new top.theillusivec4.curios.common.inventory.CurioStacksHandler(
+            inventory, "z_test", 1, true, true, true,
+            top.theillusivec4.curios.api.type.capability.ICurio.DropRule.DEFAULT);
+        inventory.setCurios(java.util.Map.of("z_test", last, "a_test", first));
+        var terminal = bind("refinedstorageaddons:wireless_crafting_grid");
+        energy(terminal).receiveEnergy(Integer.MAX_VALUE, false);
+        first.getCosmeticStacks().setStackInSlot(0, terminal);
+        h.assertTrue(Destinations.get(remote, 1).unavailable(), "cosmetic terminal excluded");
+        first.getStacks().setStackInSlot(1, terminal);
+        last.getStacks().setStackInSlot(0, terminal.copy());
+        remote.getInventory().setItem(0, stack("refinedstorage:wireless_grid"));
+        var candidates = RsCompat.terminals(remote);
+        h.assertTrue(candidates.get(38) == terminal, "functional slots sorted; original stack retained");
+        int before = energy(terminal).getEnergyStored();
+        int gold = count(Items.GOLD_INGOT);
+        var target = Destinations.get(remote, 1);
+        h.assertTrue(!target.unavailable(), "invalid inventory terminal skipped for Curios terminal");
+        target.insert(new ItemStack(Items.GOLD_INGOT, 3), true);
+        h.assertTrue(energy(terminal).getEnergyStored() == before, "Curios simulation free");
+        target.insert(new ItemStack(Items.GOLD_INGOT, 3), false);
+        h.assertTrue(count(Items.GOLD_INGOT) == gold + 3, "Curios real network insert");
+        h.assertTrue(energy(terminal).getEnergyStored() == before
+            - RS.SERVER_CONFIG.getWirelessGrid().getInsertUsage(), "Curios original stack charged once");
+        var saved = first.serializeNBT();
+        first.deserializeNBT(saved);
+        h.assertTrue(energy(first.getStacks().getStackInSlot(1)).getEnergyStored()
+            == before - RS.SERVER_CONFIG.getWirelessGrid().getInsertUsage(), "Curios serialized energy retained");
+        first.getStacks().setStackInSlot(1, ItemStack.EMPTY);
+        last.getStacks().setStackInSlot(0, ItemStack.EMPTY);
+        h.assertTrue(Destinations.get(remote, 1).unavailable(), "removed terminals not cached across calls");
+      } finally {
+        inventory.setCurios(original);
+        remote.getInventory().clearContent();
+        remote.getInventory().setItem(0, previous);
+      }
     }
 
     private void terminal(String id, Item item, int amount) {

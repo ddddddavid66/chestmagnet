@@ -508,16 +508,17 @@ public final class StructureJobs {
             + Math.max(100_000L, (deadline - System.nanoTime()) / (jobs.size() - visit)));
         var magnet = item(p, j);
         if (j.preparing) prepareAutomatic(p, j, magnet);
+        var target = Destinations.deferred(() -> Destinations.get(p, Data.mode(magnet)));
         // 目标满/离线只有限期低频重试；真正异常不会进入此分支。
         if (j.waitingTarget) {
-          if (serviceTargetWait(j, () -> Destinations.get(p, Data.mode(magnet)),
+          if (serviceTargetWait(j, () -> target,
               j.level.getGameTime(), System.nanoTime())) {
             j.status = "目的地连续15秒不可接收，已停止自动重试；请手动继续";
             AutoStructures.remember(p, j.result, "BLOCKED", j.status);
             p.displayClientMessage(Component.literal(j.status), false);
           }
         }
-        if (j.running && !j.paused) collect(p, j, slice);
+        if (j.running && !j.paused) collect(p, j, slice, target);
         if (j.viewing && j.body != null && System.nanoTime() < slice) preview(p, j, slice);
         if (j.level.getGameTime() % 20 == 0) send(p, j, false);
         if (p.containerMenu instanceof MagnetMenu menu && menu.identity.equals(j.magnet)
@@ -744,6 +745,10 @@ public final class StructureJobs {
   }
 
   static void collect(ServerPlayer p, Job j, long deadline) {
+    collect(p, j, deadline, Destinations.deferred(() -> Destinations.get(p, Data.mode(item(p, j)))));
+  }
+
+  private static void collect(ServerPlayer p, Job j, long deadline, Destinations.Target target) {
     long now = j.level.getGameTime();
     var magnet = item(p, j);
     if (magnet.isEmpty()) return;
@@ -755,8 +760,7 @@ public final class StructureJobs {
       return;
     }
     Faults.context(p, magnet, null, "准备目的地");
-    var target = Destinations.get(p, Data.mode(magnet));
-    if (target.unavailable()) {
+    if (LootCapture.pending(magnet) && target.unavailable()) {
       pauseTarget(p, j, target.reason());
       return;
     }
@@ -805,11 +809,13 @@ public final class StructureJobs {
         var o = ref.resolve(p);
         if (Faults.skipped(p, magnet, ref) && j.skippedKeys.add(ref.key(p))) j.skipped++;
         if (o == null || !contains(j, o) || Data.excluded(magnet, ref.key(p))
-            || Faults.skipped(p, magnet, ref) || target.loops(ref, p)
+            || Faults.skipped(p, magnet, ref)
             || ref.members(p).stream().anyMatch(at -> !contains(j, at))) {
           j.sources.remove(); j.slot = 0; continue;
         }
         if (!doubleReady(p, j, o)) return;
+        if (target.unavailable()) { pauseTarget(p, j, target.reason()); return; }
+        if (target.loops(ref, p)) { j.sources.remove(); j.slot = 0; continue; }
         var inv = Sources.inventory(p, o, magnet);
         if (inv == null) { j.sources.remove(); j.slot = 0; continue; }
         // 开锁/粉碎已生成的奖励下tick统一交付，不能同tick叠加另一份栈预算。

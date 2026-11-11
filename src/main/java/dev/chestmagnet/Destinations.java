@@ -22,6 +22,25 @@ public final class Destinations {
     }
   }
 
+  /** 仅在一次处理内共享解析结果，不跨 tick 缓存第三方网络。 */
+  static Target deferred(java.util.function.Supplier<Target> factory) {
+    return new Target() {
+      private Target resolved;
+      private Target value() {
+        if (resolved == null) resolved = factory.get();
+        return resolved;
+      }
+      public ItemStack insert(ItemStack stack, boolean simulate) {
+        return value().insert(stack, simulate);
+      }
+      public boolean unavailable() { return value().unavailable(); }
+      public String reason() { return value().reason(); }
+      public boolean loops(Sources.Ref source, ServerPlayer player) {
+        return value().loops(source, player);
+      }
+    };
+  }
+
   public static Target get(ServerPlayer p, int mode) {
     if (mode == 1)
       return ModList.get().isLoaded("refinedstorage")

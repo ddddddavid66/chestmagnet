@@ -1,12 +1,12 @@
 plugins { id 'java'; id 'net.minecraftforge.gradle' version '6.0.54' }
-version = '1.2.3'
+version = '1.2.4'
 group = 'dev.chestmagnet'
 base { archivesName = 'chestmagnet-forge-1.20.1' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 minecraft {
     mappings channel: 'official', version: '1.20.1'
     runs {
-        configureEach { property 'mixin.env.remapRefMap', 'true'; property 'mixin.env.refMapRemappingFile', project.file('build/createSrgToMcp/output.srg').absolutePath; if (file('tools/assets').exists()) lazyToken('assets_root') { '../tools/assets' }; args '--mixin', 'chestmagnet.mixins.json'; workingDirectory project.file('run'); mods { chestmagnet { source sourceSets.main } } }
+        configureEach { property 'mixin.env.remapRefMap', 'true'; property 'mixin.env.refMapRemappingFile', project.file('build/createSrgToMcp/output.srg').absolutePath; if (file('tools/assets').exists()) lazyToken('assets_root') { project.file('tools/assets').absolutePath }; args '--mixin', 'chestmagnet.mixins.json'; workingDirectory project.file('run'); mods { chestmagnet { source sourceSets.main } } }
         client { if(project.hasProperty('inputCheck')) property 'chestmagnet.inputCheck','true'; if(project.hasProperty('sourceSmoke')) {property 'chestmagnet.smoke','true';property 'chestmagnet.sourceSmoke','true'; if(project.hasProperty('errorSmoke')) property 'chestmagnet.errorSmoke','true'}; args '--username', 'MagnetTest', '--width', '1100', '--height', '760'; if(project.hasProperty('renderSmoke')) { property 'chestmagnet.smoke','true';property 'chestmagnet.renderSmoke','true' }; if(project.hasProperty('clientSmoke')) { args '--quickPlaySingleplayer','StructureSmoke'; property 'chestmagnet.smoke','true' } }
         server { args '--nogui' }
         gameTestServer { if(project.hasProperty('minimal')) workingDirectory project.file('run/minimal-120'); property 'forge.enabledGameTestNamespaces', 'chestmagnet' }
@@ -18,7 +18,7 @@ repositories {
     flatDir { dirs 'libs' }
 }
 dependencies {
-    minecraft 'net.minecraftforge:forge:1.20.1-47.4.16'
+    minecraft "net.minecraftforge:forge:1.20.1-${project.findProperty('forgeVersion') ?: '47.4.10'}"
     if(project.hasProperty('withCompass')) runtimeOnly fg.deobf('local:explorer:1.3.4')
     ['backpacks:3.24.35.1675','core:1.3.21.1676','rs:1.12.4','rsaddons:0.10.0','lootr:0.7.35.94','curios:5.14.1'].each {
         compileOnly fg.deobf("local:${it}")
@@ -55,4 +55,28 @@ if(project.hasProperty('compat123')) {
  if(project.hasProperty('compassVersion')) dependencies {runtimeOnly fg.deobf("local:compatcompass:${project.property('compassVersion')}")}
  if(project.hasProperty('goetyVersion')) dependencies {runtimeOnly fg.deobf("local:compatgoety:${project.property('goetyVersion')}")}
  if(project.hasProperty('oldStorage')) { configurations.runtimeClasspath.exclude group:'local', module:'backpacks'; configurations.runtimeClasspath.exclude group:'local', module:'core'; dependencies {runtimeOnly fg.deobf('local:compatbackpacks:old'); runtimeOnly fg.deobf('local:compatcore:old')} }
+}
+
+// 1.2.4 验证目录与已有世界隔离；只运行本次相关测试。
+if (project.hasProperty('qa124')) {
+    minecraft.runs.configureEach { workingDirectory project.file('run/qa124-' + (project.hasProperty('minimal') ? 'minimal' : 'rs') + '-' + (project.findProperty('forgeVersion') ?: '47.4.10')) }
+    fileTree('src/verification/java').matching { include '**/*Tests.java' }.each {
+        if (!(it.name in (project.hasProperty('minimal') ? ['MinimalTests.java', 'StructureSpeedTests.java'] : ['RsNetworkTests.java', 'RsWirelessTests.java']))) sourceSets.main.java.exclude '**/' + it.name
+    }
+}
+
+if (project.hasProperty('rsClient')) {
+    minecraft.runs.client {
+        property 'chestmagnet.rsClient', 'true'
+        if (project.hasProperty('qaDisk')) property 'chestmagnet.qaDisk', project.property('qaDisk')
+        args '--quickPlaySingleplayer', 'RsQa124'
+    }
+}
+
+if (project.hasProperty('verification')) {
+    tasks.named('processResources') {
+        doLast {
+            file("$destinationDir/META-INF/mods.toml").append('\n[[mods]]\nmodId="rsqa124"\nversion="1"\ndisplayName="RS QA (test only)"\n', 'UTF-8')
+        }
+    }
 }

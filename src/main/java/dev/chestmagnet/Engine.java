@@ -184,8 +184,8 @@ public class Engine {
     }
     Faults.context(p, m, null, "发现来源");
     discover(p, m, s, deadline);
-    var target = Destinations.get(p, Data.mode(m));
-    if (target.unavailable()) {
+    var target = Destinations.deferred(() -> Destinations.get(p, Data.mode(m)));
+    if (LootCapture.pending(m) && target.unavailable()) {
       s.status = target.reason();
       notify(p, s);
       if (p.containerMenu instanceof MagnetMenu menu && p.level().getGameTime() % 20 == 0)
@@ -226,6 +226,12 @@ public class Engine {
       if (Faults.skipped(p, m, ref)
           || Data.excluded(m, ref.key(p))
           || s.empty.getOrDefault(key, 0L) > tick) continue;
+      // 在生成战利品或提取之前验证目的地，空闲扫描不访问 RS。
+      if (target.unavailable()) {
+        s.status = target.reason();
+        notify(p, s);
+        return;
+      }
       if (target.loops(ref, p)) {
         reason = "来源已接入目标 RS 网络";
         continue;
