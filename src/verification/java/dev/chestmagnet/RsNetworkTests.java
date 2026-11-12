@@ -69,6 +69,7 @@ public final class RsNetworkTests {
     private final StorageNetworkNode storage;
     private final SecurityManagerNetworkNode security;
     private final ServerPlayer binder, remote;
+    private final BlockPos remoteChest = new BlockPos(121, 65, 120);
     private boolean feedPower = true;
 
     NetworkFixture(GameTestHelper helper) {
@@ -226,7 +227,7 @@ public final class RsNetworkTests {
       h.assertTrue(
           count(item) == beforeCount && energy.getEnergyStored() == beforeEnergy,
           id + " simulation changes neither real storage nor terminal energy");
-      h.assertTrue(target.insert(sample.copy(), false).isEmpty(), id + " actual batch accepted");
+      h.assertTrue(engineChest(sample).isEmpty(), id + " actual chest drained by nearby Engine");
       h.assertTrue(
           count(item) == beforeCount + amount, id + " actual items present in real storage");
       h.assertTrue(
@@ -258,8 +259,32 @@ public final class RsNetworkTests {
 
     private void noCard() {
       transmitter.getUpgrades().setStackInSlot(0, ItemStack.EMPTY);
-      reject("覆盖", "cross dimension without card");
+      reject("维度卡", "cross dimension without card");
+      transmitter.getUpgrades().setStackInSlot(0, stack("rsinfinitybooster:infinity_card"));
+      reject("维度卡", "range card does not replace dimension card");
       transmitter.getUpgrades().setStackInSlot(0, stack("rsinfinitybooster:dimension_card"));
+      transmitter.setRedstonePowered(false);
+      transmitter.setRedstoneMode(com.refinedmods.refinedstorage.blockentity.config.RedstoneMode.HIGH);
+      h.assertTrue(!transmitter.isActive(), "native access point disabled");
+      reject("维度卡", "disabled access point cannot authorize");
+      transmitter.setRedstoneMode(com.refinedmods.refinedstorage.blockentity.config.RedstoneMode.IGNORE);
+    }
+
+    private ItemStack engineChest(ItemStack stack) {
+      var level = remote.serverLevel();
+      // 测试夹具先准备区块；Engine 不得替测试加载。
+      level.getChunkAt(remoteChest);
+      level.setBlockAndUpdate(remoteChest, net.minecraft.world.level.block.Blocks.BARREL.defaultBlockState());
+      var barrel = (net.minecraft.world.level.block.entity.BarrelBlockEntity) level.getBlockEntity(remoteChest);
+      try {
+        barrel.setItem(0, stack.copy());
+        var magnet = new ItemStack(ChestMagnet.MAGNET.get());
+        Data.tag(magnet).putInt("Mode", 1);
+        new Engine().work(remote, magnet, new Engine.State(), Long.MAX_VALUE);
+        return barrel.getItem(0).copy();
+      } finally {
+        level.setBlockAndUpdate(remoteChest, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState());
+      }
     }
 
     private void deniedPermission() {
@@ -299,6 +324,8 @@ public final class RsNetworkTests {
       h.assertTrue(
           target.insert(new ItemStack(Items.DIAMOND, 3), false).getCount() == 3,
           label + " keeps full remainder");
+      h.assertTrue(engineChest(new ItemStack(Items.DIAMOND, 3)).getCount() == 3,
+          label + " leaves real source contents unchanged");
       h.assertTrue(
           count(Items.DIAMOND) == beforeDiamond
               && count(Items.EMERALD) == beforeEmerald

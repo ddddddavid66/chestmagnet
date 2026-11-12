@@ -16,6 +16,10 @@ import net.minecraftforge.items.*;
 import net.minecraftforge.items.wrapper.InvWrapper;
 
 public final class Sources {
+  private static final net.minecraft.tags.TagKey<Block> CHESTS =
+      BlockTags.create(new ResourceLocation("forge", "chests"));
+  private static final net.minecraft.tags.TagKey<Block> BARRELS =
+      BlockTags.create(new ResourceLocation("forge", "barrels"));
   public record Ref(BlockPos pos, UUID entity) {
     public Object resolve(ServerPlayer p) {
       if (entity != null) {
@@ -90,12 +94,11 @@ public final class Sources {
   public static boolean eligible(Object o) {
     if (o instanceof SourceExtras.Special) return true;
     if (o instanceof Entity e) {
-      String id =
-          net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES.getKey(e.getType()).toString();
-      return e instanceof net.minecraft.world.entity.decoration.ItemFrame
-          || e instanceof MinecartChest
-          || e instanceof MinecartHopper
-          || (e instanceof AbstractMinecartContainer && id.startsWith("lootr:"));
+      if (e instanceof net.minecraft.world.entity.decoration.ItemFrame
+          || e instanceof MinecartChest || e instanceof MinecartHopper) return true;
+      if (!(e instanceof AbstractMinecartContainer)) return false;
+      var id = net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES.getKey(e.getType());
+      return id != null && id.getNamespace().equals("lootr");
     }
     if (!(o instanceof BlockEntity b)) return false;
     var id =
@@ -110,8 +113,8 @@ public final class Sources {
         || ChurchContainers.known(b)
         || b instanceof BarrelBlockEntity
         || b instanceof ShulkerBoxBlockEntity
-        || b.getBlockState().is(BlockTags.create(new ResourceLocation("forge:chests")))
-        || b.getBlockState().is(BlockTags.create(new ResourceLocation("forge:barrels")));
+        || b.getBlockState().is(CHESTS)
+        || b.getBlockState().is(BARRELS);
   }
 
   public static Ref of(Object o) {

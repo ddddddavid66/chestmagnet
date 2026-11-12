@@ -3,7 +3,7 @@ loaderVersion="[47,)"
 license="MIT"
 [[mods]]
 modId="chestmagnet"
-version="1.2.4"
+version="1.2.5"
 displayName="宝箱磁铁"
 description='''自动收取储物来源与展示框，支持上锁战利品、指南针、精妙背包、RS 和 Lootr。'''
 [[dependencies.chestmagnet]]
@@ -22,21 +22,21 @@ side="BOTH"
 [[dependencies.chestmagnet]]
 modId="lootr"
 mandatory=false
-versionRange="[0.7.35.94,0.7.35.95)"
+versionRange="[0.7.31.77,0.7.35.95)"
 ordering="AFTER"
 side="BOTH"
 
 [[dependencies.chestmagnet]]
 modId="sophisticatedbackpacks"
 mandatory=false
-versionRange="[3.23.15.1236,)"
+versionRange="[3.20.17.1150,)"
 ordering="AFTER"
 side="BOTH"
 
 [[dependencies.chestmagnet]]
 modId="sophisticatedcore"
 mandatory=false
-versionRange="[1.2.55.975,)"
+versionRange="[0.7.8.786,)"
 ordering="AFTER"
 side="BOTH"
 

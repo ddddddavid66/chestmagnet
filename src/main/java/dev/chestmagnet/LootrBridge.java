@@ -4,6 +4,15 @@ import net.minecraft.world.Container;
 import net.minecraft.world.entity.player.Player;
 
 public final class LootrBridge {
+  private static volatile boolean menuHook;
+
+  public static void menuHookApplied() {
+    menuHook = true;
+  }
+
+  static boolean hasMenuHook() {
+    return menuHook;
+  }
   // 只在一次磁铁调用期间捕获菜单；不得影响手动开箱或其他玩家。
   public static final ThreadLocal<Capture> ACTIVE = new ThreadLocal<>();
 

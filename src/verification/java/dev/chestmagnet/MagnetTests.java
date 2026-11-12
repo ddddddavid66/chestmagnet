@@ -143,7 +143,7 @@ public class MagnetTests {
                 net.p3pp3rf1y.sophisticatedcore.upgrades.voiding.VoidUpgradeWrapper.class);
     h.assertTrue(!voids.isEmpty(), "void upgrade installed");
     var v = voids.get(0);
-    v.setVoidType(net.p3pp3rf1y.sophisticatedcore.upgrades.voiding.VoidType.ALWAYS);
+      configureVoid(v);
     v.getFilterLogic().setEmptyAllowListMatchesEverything();
     h.assertTrue(
         Destinations.get(p, 2).insert(new ItemStack(Items.EMERALD, 9), false).isEmpty(),
@@ -152,6 +152,59 @@ public class MagnetTests {
     for (int i = 0; i < wrapper.getInventoryHandler().getSlots(); i++)
       emerald |= wrapper.getInventoryHandler().getStackInSlot(i).is(Items.EMERALD);
     h.assertTrue(!emerald, "accepted items destroyed by upgrade");
+    h.succeed();
+  }
+
+  private static void configureVoid(Object upgrade) {
+    try {
+      try {
+        var type = Class.forName("net.p3pp3rf1y.sophisticatedcore.upgrades.voiding.VoidType");
+        upgrade.getClass().getMethod("setVoidType", type).invoke(upgrade, type.getField("ALWAYS").get(null));
+      } catch (ClassNotFoundException e) {
+        upgrade.getClass().getMethod("setShouldVoidOverflow", boolean.class).invoke(upgrade, false);
+      }
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException("could not configure native void upgrade", e);
+    }
+  }
+
+  private static net.p3pp3rf1y.sophisticatedcore.api.IStorageWrapper bagWrapper(ItemStack stack) {
+    return stack.getCapability(net.p3pp3rf1y.sophisticatedbackpacks.api.CapabilityBackpackWrapper
+        .getCapabilityInstance()).orElseThrow(IllegalStateException::new);
+  }
+
+  @GameTest(template = "empty")
+  public static void backpackRemainder(GameTestHelper h) {
+    var p = player(h);
+    var item = net.minecraftforge.registries.ForgeRegistries.ITEMS.getValue(
+        new net.minecraft.resources.ResourceLocation("sophisticatedbackpacks", "backpack"));
+    var a = new ItemStack(item);
+    var b = new ItemStack(item);
+    var c = new ItemStack(item);
+    p.getInventory().setItem(4, a);
+    p.getInventory().setItem(19, b);
+    p.getInventory().setItem(35, c);
+    var first = bagWrapper(a).getInventoryHandler();
+    var second = bagWrapper(b).getInventoryHandler();
+    var third = bagWrapper(c).getInventoryHandler();
+    for (int i = 0; i < first.getSlots(); i++) first.setStackInSlot(i, new ItemStack(Items.STONE, 64));
+    first.setStackInSlot(0, new ItemStack(Items.DIAMOND, 61));
+    var upgrade = net.minecraftforge.registries.ForgeRegistries.ITEMS.getValue(
+        new net.minecraft.resources.ResourceLocation("sophisticatedbackpacks", "filter_upgrade"));
+    var wrappedSecond = bagWrapper(b);
+    wrappedSecond.getUpgradeHandler().setStackInSlot(0, new ItemStack(upgrade));
+    var filter = wrappedSecond.getUpgradeHandler().getWrappersThatImplement(
+        net.p3pp3rf1y.sophisticatedcore.upgrades.filter.FilterUpgradeWrapper.class).get(0);
+    filter.setDirection(net.p3pp3rf1y.sophisticatedcore.upgrades.filter.Direction.INPUT);
+    filter.getFilterLogic().setAllowList(true);
+    filter.getFilterLogic().getFilterHandler().setStackInSlot(0, new ItemStack(Items.IRON_INGOT));
+    var target = Destinations.get(p, 2);
+    var diamonds = new ItemStack(Items.DIAMOND, 8);
+    h.assertTrue(target.insert(diamonds, true).isEmpty() && first.getStackInSlot(0).getCount() == 61
+        && third.getStackInSlot(0).isEmpty(), "simulation across multiple bags");
+    h.assertTrue(target.insert(diamonds, false).isEmpty(), "slot 35 receives remainder");
+    h.assertTrue(first.getStackInSlot(0).getCount() == 64 && second.getStackInSlot(0).isEmpty()
+        && third.getStackInSlot(0).getCount() == 5, "partial first, filtered second, third got 5");
     h.succeed();
   }
 

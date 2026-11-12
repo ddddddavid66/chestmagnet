@@ -393,18 +393,50 @@ public final class SourceExtras {
     };
   }
 
-  static boolean clearLock(BaseContainerBlockEntity b) {
-    try {
+  private static final class LockField {
+    static final java.lang.reflect.Field VALUE = find();
+
+    private static java.lang.reflect.Field find() {
       for (var field : BaseContainerBlockEntity.class.getDeclaredFields())
         if (field.getType() == net.minecraft.world.LockCode.class) {
           field.setAccessible(true);
-          var lock = (net.minecraft.world.LockCode) field.get(b);
-          if (lock.unlocksWith(ItemStack.EMPTY)) return false;
-          field.set(b, net.minecraft.world.LockCode.NO_LOCK);
-          return true;
+          return field;
         }
-      throw new IllegalStateException("原版锁字段不匹配");
-    } catch (ReflectiveOperationException e) {
+      return null;
+    }
+  }
+
+  private static boolean hasLock(BaseContainerBlockEntity b) {
+    if (LockField.VALUE == null) throw new IllegalStateException("原版锁字段不匹配");
+    try {
+      return !((net.minecraft.world.LockCode) LockField.VALUE.get(b)).unlocksWith(ItemStack.EMPTY);
+    } catch (IllegalAccessException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  static boolean needsNearbyFinish(ServerPlayer p, Object o, boolean locked) {
+    if (!locked || !(o instanceof BlockEntity be) || be.isRemoved()) return false;
+    String id = blockId(p, be.getBlockPos());
+    if (id.startsWith("lootr:")) return false;
+    if (id.equals("aether:treasure_chest") || id.equals("tetra:forged_container")
+        || ChurchContainers.known(be)) return true;
+    if (be instanceof BaseContainerBlockEntity b) {
+      if (hasLock(b)) return true;
+      for (var pos : Sources.of(be).members(p))
+        if (!pos.equals(be.getBlockPos())
+            && p.level().getBlockEntity(pos) instanceof BaseContainerBlockEntity half
+            && hasLock(half)) return true;
+    }
+    return false;
+  }
+
+  static boolean clearLock(BaseContainerBlockEntity b) {
+    try {
+      if (!hasLock(b)) return false;
+      LockField.VALUE.set(b, net.minecraft.world.LockCode.NO_LOCK);
+      return true;
+    } catch (IllegalAccessException e) {
       throw new IllegalStateException(e);
     }
   }

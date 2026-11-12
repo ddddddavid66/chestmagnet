@@ -1,13 +1,11 @@
 package dev.chestmagnet;
 
 import java.util.*;
-import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.*;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
@@ -26,12 +24,15 @@ public class Engine {
     long processed;
     final LinkedHashMap<String, Sources.Ref> sources = new LinkedHashMap<>();
     final Map<String, Long> empty = new HashMap<>();
-    final Map<String, Integer> slots = new HashMap<>();
-    List<BlockPos> chunkPositions = List.of();
-    int cx, cz, offset, sourceCursor;
-    SourceExtras.Scan specialScan;
-    BlockPos center = BlockPos.ZERO;
+    final Map<String, SlotCycle> slots = new HashMap<>();
+    NearbyScan scan = new NearbyScan();
+    int mode = -1;
     String range = "";
+  }
+
+  private static final class SlotCycle {
+    int size, next, visited;
+    boolean nonempty;
   }
 
   public static ItemStack active(ServerPlayer p) {
@@ -50,6 +51,7 @@ public class Engine {
   public static void toggle(ServerPlayer p, ItemStack s) {
     Data.tag(s).putBoolean("Enabled", !Data.enabled(s));
     if (!Data.enabled(s)) StructureJobs.stopForMagnet(p, s, "玩家关闭磁铁");
+    else STATES.remove(p.getUUID());
     p.getInventory().setChanged();
     message(
         p, "宝箱磁铁已" + (Data.enabled(s) ? "开启" : "关闭") + " · 吸收模式：" + Data.modeName(Data.mode(s)));
@@ -167,14 +169,10 @@ public class Engine {
       s.sources.clear();
       s.empty.clear();
       s.slots.clear();
-      s.cx = s.cz = 0;
-      s.offset = 0;
-      s.chunkPositions = List.of();
-      s.specialScan = null;
+      s.scan = new NearbyScan();
       s.magnet = id;
       s.dimension = dim;
       s.range = range;
-      s.center = p.blockPosition();
     }
     if (Data.tag(m).contains("Recovery")) {
       Data.tag(m).putBoolean("Enabled", false);
@@ -183,7 +181,28 @@ public class Engine {
       return;
     }
     Faults.context(p, m, null, "发现来源");
-    discover(p, m, s, deadline);
+    int mode = Data.mode(m);
+    if (mode != s.mode) {
+      s.empty.clear();
+      s.slots.clear();
+      s.mode = mode;
+    }
+    var at = p.blockPosition();
+    int rx = Data.radius(m, "X"), ry = Data.radius(m, "Y"), rz = Data.radius(m, "Z");
+    var bounds = new NearbyScan.Box(at.getX() - rx, at.getY() - ry, at.getZ() - rz,
+        at.getX() + rx, at.getY() + ry, at.getZ() + rz);
+    boolean locked = SourceExtras.option(m, "CollectLocked");
+    boolean frames = SourceExtras.option(m, "CollectFrames");
+    java.util.function.Consumer<Object> register = o -> {
+      if (s.sources.size() < 4096) {
+        var ref = Sources.of(o);
+        s.sources.put(ref.key(p), ref);
+      }
+    };
+    long now = System.nanoTime();
+    long discoveryDeadline = s.sources.isEmpty() ? deadline
+        : now + Math.max(0, deadline - now) / 3;
+    s.scan.step(p, bounds, locked, frames, discoveryDeadline, register);
     var target = Destinations.deferred(() -> Destinations.get(p, Data.mode(m)));
     if (LootCapture.pending(m) && target.unavailable()) {
       s.status = target.reason();
@@ -202,30 +221,41 @@ public class Engine {
       s.status = "开箱产物已处理";
       return;
     }
-    var refs = new ArrayList<>(s.sources.entrySet());
+    int sourceCount = Math.min(s.sources.size(), Config.SCAN.get());
     int probes = 0, moved = 0;
-    boolean tried = false, rejected = false;
+    boolean rejected = false;
     String reason = "附近没有待吸收的物品";
     long tick = p.level().getGameTime();
     for (int n = 0;
-        n < refs.size()
+        n < sourceCount
             && probes < Config.PROBES.get()
             && moved < Config.STACKS.get()
             && System.nanoTime() < deadline;
         n++) {
-      var entry = refs.get(Math.floorMod(s.sourceCursor++, refs.size()));
+      var iterator = s.sources.entrySet().iterator();
+      var entry = iterator.next();
       String key = entry.getKey();
       var ref = entry.getValue();
+      iterator.remove();
+      s.sources.put(key, ref);
+      if (s.empty.getOrDefault(key, 0L) > tick) continue;
       Faults.context(p, m, ref, "解析来源");
       var o = ref.resolve(p);
       if (o == null || !Sources.eligible(o) || !Sources.inside(p, m, o)) {
         s.sources.remove(key);
         s.empty.remove(key);
+        s.slots.remove(key);
         continue;
       }
-      if (Faults.skipped(p, m, ref)
-          || Data.excluded(m, ref.key(p))
-          || s.empty.getOrDefault(key, 0L) > tick) continue;
+      String currentKey = ref.key(p);
+      if (!key.equals(currentKey)) {
+        s.sources.remove(key);
+        s.empty.remove(key);
+        s.slots.remove(key);
+        s.sources.putIfAbsent(currentKey, ref);
+        continue;
+      }
+      if (Faults.skipped(p, m, ref) || Data.excluded(m, key)) continue;
       // 在生成战利品或提取之前验证目的地，空闲扫描不访问 RS。
       if (target.unavailable()) {
         s.status = target.reason();
@@ -239,20 +269,22 @@ public class Engine {
       Faults.context(p, m, ref, "准备来源");
       var inv = Sources.inventory(p, o, m);
       if (inv == null) continue;
-      boolean nonempty = false;
-      for (int visit = 0;
-          visit < inv.getSlots()
-              && probes < Config.PROBES.get()
-              && moved < Config.STACKS.get()
-              && System.nanoTime() < deadline;
-          visit++) {
-        int slot = Math.floorMod(s.slots.getOrDefault(key, 0), inv.getSlots());
-        s.slots.put(key, slot + 1);
+      int size = inv.getSlots();
+      var cycle = s.slots.computeIfAbsent(key, k -> new SlotCycle());
+      if (size != cycle.size) {
+        cycle.size = size;
+        cycle.next = cycle.visited = 0;
+        cycle.nonempty = false;
+      }
+      while (cycle.visited < size && probes < Config.PROBES.get()
+          && moved < Config.STACKS.get() && System.nanoTime() < deadline) {
+        int slot = cycle.next;
+        cycle.next = (slot + 1) % size;
+        cycle.visited++;
         probes++;
         var sample = inv.extractItem(slot, 64, true);
         if (sample.isEmpty()) continue;
-        nonempty = true;
-        tried = true;
+        cycle.nonempty = true;
         var left = target.insert(sample, true);
         int accepted = sample.getCount() - left.getCount();
         if (accepted <= 0) {
@@ -275,10 +307,20 @@ public class Engine {
         }
       }
       Faults.stage("收尾");
-      if (!LootCapture.pending(m)) SourceExtras.finish(p, o, inv, m);
+      if (!LootCapture.pending(m) && SourceExtras.needsNearbyFinish(p, o, locked))
+        SourceExtras.finish(p, o, inv, m);
       Faults.clearContext();
       if (LootCapture.pending(m)) break;
-      if (!nonempty && inv.getSlots() <= Config.PROBES.get()) s.empty.put(key, tick + 20);
+      if (cycle.visited >= size) {
+        if (!cycle.nonempty) s.empty.put(key, tick + 20);
+        cycle.visited = 0;
+        cycle.nonempty = false;
+      }
+    }
+    if (!LootCapture.pending(m)) {
+      Faults.context(p, m, null, "发现特殊来源");
+      s.scan.specials(p, locked, deadline, register);
+      Faults.clearContext();
     }
     s.status = moved > 0 ? "工作中 · 已处理 " + s.processed + " 件" : reason;
     if (rejected && moved == 0) notify(p, s);
@@ -295,66 +337,4 @@ public class Engine {
     }
   }
 
-  private void discover(ServerPlayer p, ItemStack m, State s, long deadline) {
-    int budget = Config.SCAN.get();
-    int rx = Data.radius(m, "X"), ry = Data.radius(m, "Y"), rz = Data.radius(m, "Z");
-    var at = p.blockPosition();
-    if (p.level().getGameTime() % 5 == 0) {
-      var box =
-          new AABB(
-              at.getX() - rx,
-              at.getY() - ry,
-              at.getZ() - rz,
-              at.getX() + rx + 1,
-              at.getY() + ry + 1,
-              at.getZ() + rz + 1);
-      for (var cart :
-          p.level()
-              .getEntitiesOfClass(
-                  net.minecraft.world.entity.Entity.class, box, Sources::eligible)) {
-        if (budget-- <= 0 || System.nanoTime() >= deadline) break;
-        if (Sources.eligible(cart)) {
-          var ref = Sources.of(cart);
-          s.sources.put(ref.key(p), ref);
-        }
-      }
-    }
-    int minX = (at.getX() - rx) >> 4,
-        maxX = (at.getX() + rx) >> 4,
-        minZ = (at.getZ() - rz) >> 4,
-        maxZ = (at.getZ() + rz) >> 4;
-    int width = maxX - minX + 1, depth = maxZ - minZ + 1;
-    if ((s.chunkPositions.isEmpty() || s.offset >= s.chunkPositions.size())
-        && s.specialScan == null) {
-      if (p.level().getGameTime() % 10 != 0 && s.cx == 0 && s.cz == 0) return;
-      var chunk = p.serverLevel().getChunkSource().getChunkNow(minX + s.cx, minZ + s.cz);
-      s.cx++;
-      if (s.cx >= width) {
-        s.cx = 0;
-        s.cz = (s.cz + 1) % depth;
-      }
-      s.chunkPositions = chunk == null ? List.of() : new ArrayList<>(chunk.getBlockEntitiesPos());
-      s.offset = 0;
-      if (chunk != null && SourceExtras.option(m, "CollectLocked"))
-        s.specialScan = new SourceExtras.Scan(chunk);
-    }
-    if (s.specialScan != null
-        && s.specialScan.step(
-            o -> {
-              if (Sources.inside(p, m, o)) {
-                var ref = Sources.of(o);
-                s.sources.put(ref.key(p), ref);
-              }
-            },
-            deadline)) s.specialScan = null;
-    while (s.offset < s.chunkPositions.size() && budget-- > 0 && System.nanoTime() < deadline) {
-      var pos = s.chunkPositions.get(s.offset++);
-      if (!p.level().hasChunkAt(pos)) continue;
-      var be = p.level().getBlockEntity(pos);
-      if (Sources.eligible(be) && Sources.inside(p, m, be)) {
-        var ref = Sources.of(be);
-        if (s.sources.size() < 4096) s.sources.put(ref.key(p), ref);
-      }
-    }
-  }
 }

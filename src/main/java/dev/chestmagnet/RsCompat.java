@@ -17,6 +17,20 @@ import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.registries.ForgeRegistries;
 
 public final class RsCompat {
+  static final String NO_DIMENSION_CARD =
+      "无法跨维度存入：请在此终端绑定的 RS 网络中，给已启用的无线访问点装上「维度卡」。";
+
+  // 无效的后续终端不覆盖已经定位到的网络问题。
+  private static final class Failure {
+    int stage;
+    String message = "未携带已绑定无线网格";
+
+    void at(int next, String detail) {
+      if (next <= stage) return;
+      stage = next;
+      message = detail;
+    }
+  }
   private static final Set<String> IDS =
       Set.of(
           "refinedstorage:wireless_grid",
@@ -50,39 +64,60 @@ public final class RsCompat {
   }
 
   public static Destinations.Target target(ServerPlayer p) {
-    String error = "未携带已绑定无线网格，请切换背包/物品栏";
+    var error = new Failure();
     for (ItemStack s : terminals(p)) {
       String id = String.valueOf(ForgeRegistries.ITEMS.getKey(s.getItem()));
       if (!IDS.contains(id) || !(s.getItem() instanceof NetworkItem item)) continue;
       INetwork[] found = {null};
-      String[] failure = {"终端未绑定或控制器区块未加载"};
-      item.applyNetwork(p.server, s, n -> found[0] = n, c -> failure[0] = c.getString());
+      item.applyNetwork(p.server, s, n -> found[0] = n, ignored -> {});
       var n = found[0];
       if (n == null) {
-        error = failure[0];
+        if (!NetworkItem.isValid(s) || NetworkItem.getDimension(s) == null) {
+          error.at(1, "无线终端未绑定");
+          continue;
+        }
+        var boundLevel = p.server.getLevel(NetworkItem.getDimension(s));
+        var boundPos = new net.minecraft.core.BlockPos(
+            NetworkItem.getX(s), NetworkItem.getY(s), NetworkItem.getZ(s));
+        if (boundLevel == null) error.at(2, "无线终端绑定的维度不可用");
+        else if (!boundLevel.hasChunkAt(boundPos)) error.at(2, "RS 控制器所在区块未加载");
+        else error.at(2, "在无线终端绑定的位置找不到 RS 网络");
         continue;
       }
       if (!n.canRun()) {
-        error = "RS 网络离线";
+        error.at(3, "RS 网络离线");
         continue;
       }
-      boolean range;
+      boolean crossDimension = !n.getLevel().dimension().equals(p.level().dimension());
+      boolean range = false;
+      IllegalStateException hookFailure = null;
       try {
-        range =
-            n.getNodeGraph().all().stream()
-                .map(INetworkNodeGraphEntry::getNode)
-                .anyMatch(node -> covers(p, node));
+        for (var entry : n.getNodeGraph().all()) {
+          var node = entry.getNode();
+          try {
+            if (crossDimension
+                ? node.isActive() && node instanceof WirelessTransmitterNetworkNode wireless
+                    && BoosterCompat.crossDimension(wireless)
+                : covers(p, node)) {
+              range = true;
+              break;
+            }
+          } catch (IllegalStateException e) {
+            hookFailure = e;
+          }
+        }
       } catch (IllegalStateException e) {
-        // 兼容查询失败属于目的地不可用；尚未提取，不应把当前容器隔离成错误来源。
-        error = e.getMessage();
-        continue;
+        hookFailure = e;
       }
       if (!range) {
-        error = "超出 RS 无线覆盖范围";
+        error.at(4, hookFailure != null ? hookFailure.getMessage() : crossDimension
+            ? (net.minecraftforge.fml.ModList.get().isLoaded("rsinfinitybooster")
+                ? NO_DIMENSION_CARD : "未安装 RSInfinityBooster，无法跨维度存入")
+            : "超出 RS 无线覆盖范围");
         continue;
       }
       if (!n.getSecurityManager().hasPermission(Permission.INSERT, p)) {
-        error = "没有 RS 存入权限";
+        error.at(5, "没有 RS 存入权限");
         continue;
       }
       boolean useEnergy =
@@ -99,7 +134,7 @@ public final class RsCompat {
               : RS.SERVER_CONFIG.getWirelessGrid().getInsertUsage();
       var energy = s.getCapability(ForgeCapabilities.ENERGY).orElse(null);
       if (fee > 0 && (energy == null || energy.extractEnergy(fee, true) < fee)) {
-        error = "RS 无线网格电量不足";
+        error.at(6, "RS 无线网格电量不足");
         continue;
       }
       return new Destinations.Target() {
@@ -145,6 +180,6 @@ public final class RsCompat {
         }
       };
     }
-    return Destinations.failed(error + "；可切换背包/物品栏");
+    return Destinations.failed(error.message);
   }
 }

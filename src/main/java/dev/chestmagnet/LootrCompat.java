@@ -16,11 +16,28 @@ public final class LootrCompat {
 
   private static final Map<Key, Boolean> SEEN = new HashMap<>();
 
+  private static final class MenuHook {
+    static final boolean READY = verify();
+
+    private static boolean verify() {
+      try {
+        Class.forName("noobanidus.mods.lootr.util.ChestUtil", false,
+            LootrCompat.class.getClassLoader());
+        if (LootrBridge.hasMenuHook()) return true;
+      } catch (ClassNotFoundException | LinkageError ignored) {
+        // 不调用原生打开入口，也不降级读取共享库存。
+      }
+      org.slf4j.LoggerFactory.getLogger("chestmagnet").warn("Lootr 菜单钩子不兼容，已停用 Lootr 收取");
+      return false;
+    }
+  }
+
   public static void clear() {
     SEEN.clear();
   }
 
   public static Container inventory(ServerPlayer p, Object source) {
+    if (!MenuHook.READY) return null;
     var level = p.serverLevel();
     boolean cart = source instanceof LootrChestMinecartEntity;
     UUID id =
