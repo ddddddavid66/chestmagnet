@@ -19,7 +19,7 @@ import net.minecraftforge.registries.*;
 public final class Net {
   private static final SimpleChannel CHANNEL =
       NetworkRegistry.newSimpleChannel(
-          new ResourceLocation(ChestMagnet.ID, "main"), () -> "5", "5"::equals, "5"::equals);
+          new ResourceLocation(ChestMagnet.ID, "main"), () -> "6", "6"::equals, "6"::equals);
   static final DeferredRegister<MenuType<?>> MENUS =
       DeferredRegister.create(ForgeRegistries.MENU_TYPES, ChestMagnet.ID);
   public static final RegistryObject<MenuType<MagnetMenu>> MENU =
@@ -227,7 +227,11 @@ public final class Net {
     var s = menu.stack();
     var t = Data.tag(s);
     switch (q.action) {
-      case 1 -> t.putInt("Mode", Math.floorMod(q.value, 3));
+      case 1 -> t.putInt("Mode", Data.normalizeMode(q.value));
+      case 18 -> {
+        t.putBoolean("QuestDetection", !Data.questDetection(t));
+        QuestDetection.remove(p.getUUID());
+      }
       case 2 -> Engine.toggle(p, s);
       case 3, 4, 5 ->
           t.putInt(

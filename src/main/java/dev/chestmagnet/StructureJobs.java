@@ -42,7 +42,8 @@ public final class StructureJobs {
     int blockCursor, entityCursor;
     int slot, done, total, found, processed, loadRequests;
     int skipped, isolatedBefore;
-    boolean automatic, preparing, waitingTarget;
+    boolean automatic, autoTriggered, preparing, waitingTarget;
+    ChapelPedestals.Layout chapel = ChapelPedestals.Layout.EMPTY;
     long waitStartedNanos, nextTargetCheck;
     ItemStack waitSample = ItemStack.EMPTY;
     final Set<String> skippedKeys = new HashSet<>();
@@ -91,7 +92,12 @@ public final class StructureJobs {
   }
 
   static boolean beginAutomatic(ServerPlayer p, ItemStack magnet, CompoundTag result) {
+    return beginAutomatic(p, magnet, result, true);
+  }
+
+  private static boolean beginAutomatic(ServerPlayer p, ItemStack magnet, CompoundTag result, boolean autoTriggered) {
     var j = create(p, magnet, result, true);
+    j.autoTriggered = autoTriggered;
     if (!full(j, j.start)) {
       if (!AutoStructures.nearAnchor(p, result)) return false;
       j.preparing = true;
@@ -137,7 +143,7 @@ public final class StructureJobs {
     if (active.isEmpty() || !Data.id(active).equals(Data.id(magnet)))
       throw new IllegalArgumentException("请启用并选择当前物品栏中顺序最前的磁铁");
     AutoStructures.allow(p, result);
-    if (!beginAutomatic(p, magnet, result)) throw new IllegalArgumentException("请靠近指南针目标或建筑主体");
+    if (!beginAutomatic(p, magnet, result, false)) throw new IllegalArgumentException("请靠近指南针目标或建筑主体");
   }
 
   static void tell(ServerPlayer p, String s) {
@@ -178,6 +184,8 @@ public final class StructureJobs {
     if (st == null || !st.isValid() || st.getPieces().isEmpty())
       throw new IllegalArgumentException("无法取得可靠建筑布局，请靠近目标或重新搜索");
     j.body = bounds(st);
+    j.chapel = j.autoTriggered && ChapelPedestals.CHURCH.equals(j.result.getString("Structure"))
+        ? ChapelPedestals.from(st) : ChapelPedestals.Layout.EMPTY;
     int m = Config.STRUCTURE_MARGIN.get();
     j.region =
         new BoundingBox(
@@ -365,7 +373,7 @@ public final class StructureJobs {
       return;
     }
     if (req.action() == 23) {
-      Data.tag(held(p)).putInt("Mode", Math.floorMod(req.value(), 3));
+      Data.tag(held(p)).putInt("Mode", Data.normalizeMode(req.value()));
       send(p, j, false);
       return;
     }
@@ -382,6 +390,9 @@ public final class StructureJobs {
   static void resume(ServerPlayer p, Job j, ItemStack magnet) {
     if (magnet.isEmpty()) throw new IllegalArgumentException("对应磁铁已经不再可用");
     if (j.complete) {
+      // 已完成任务从确认页重扫属于手动操作，不继承原来的自动基座权限。
+      j.autoTriggered = false;
+      j.chapel = ChapelPedestals.Layout.EMPTY;
       j.complete = j.running = false;
       j.done = j.found = j.loadRequests = j.processed = j.skipped = 0;
       j.seen.clear(); j.skippedKeys.clear(); j.markers.clear(); j.waiting.clear();
@@ -718,7 +729,9 @@ public final class StructureJobs {
       var at = j.blockEntities.get(j.blockCursor++);
       if (!contains(j, at)) continue;
       var be = j.level.getBlockEntity(at);
-      if (Sources.eligible(be)) addSource(p, j, magnet, Sources.of(be), at);
+      if (Sources.eligible(be) || Data.autoStructure(magnet) && be != null
+          && j.chapel.rewards().containsKey(at) && j.chapel.inventory(j.level, be) != null)
+        addSource(p, j, magnet, Sources.of(be), at);
     }
     while (j.entityCursor < j.entityIds.size() && visited < budget && System.nanoTime() < deadline) {
       visited++;
@@ -778,6 +791,7 @@ public final class StructureJobs {
     }
     if (hadPending) {
       j.processed += pendingBefore;
+      if (pendingBefore > 0) QuestDetection.wake(p);
       j.waitingTarget = false; j.waitStartedNanos = 0;
       return;
     }
@@ -813,10 +827,15 @@ public final class StructureJobs {
             || ref.members(p).stream().anyMatch(at -> !contains(j, at))) {
           j.sources.remove(); j.slot = 0; continue;
         }
+        boolean pedestal = ref.pos() != null && j.chapel.rewards().containsKey(ref.pos());
+        var pedestalInventory = pedestal && Data.autoStructure(magnet)
+                && o instanceof net.minecraft.world.level.block.entity.BlockEntity be
+            ? j.chapel.inventory(j.level, be) : null;
+        if (pedestal && pedestalInventory == null) { j.sources.remove(); j.slot = 0; continue; }
         if (!doubleReady(p, j, o)) return;
         if (target.unavailable()) { pauseTarget(p, j, target.reason()); return; }
         if (target.loops(ref, p)) { j.sources.remove(); j.slot = 0; continue; }
-        var inv = Sources.inventory(p, o, magnet);
+        var inv = pedestal ? pedestalInventory : Sources.inventory(p, o, magnet);
         if (inv == null) { j.sources.remove(); j.slot = 0; continue; }
         // 开锁/粉碎已生成的奖励下tick统一交付，不能同tick叠加另一份栈预算。
         if (LootCapture.pending(magnet)) { j.status = "开箱产物待处理"; return; }
@@ -841,7 +860,7 @@ public final class StructureJobs {
         j.waitingTarget = false; j.waitStartedNanos = 0;
         int n = Transfer.move(inv, j.slot, accepted, target, magnet);
         j.processed += n;
-        if (n > 0) moved++; else j.slot++;
+        if (n > 0) { moved++; QuestDetection.wake(p); } else j.slot++;
         if (Data.tag(magnet).contains("Recovery")) {
           j.status = "转移余量已进入恢复缓存，任务暂停";
           j.paused = true; releaseForPause(j); return;

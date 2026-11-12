@@ -9,7 +9,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--pack', type=Path, required=True, help='包含 versions/libraries/assets 的 .minecraft 目录')
 parser.add_argument('--magnet', type=Path, help='省略表示无磁铁；提供正式 JAR 路径')
 parser.add_argument('--mode', choices=['off', 'idle', 'active'], default='off')
-parser.add_argument('--suite', choices=['rs124', 'bench', 'compat', 'rs125'], default='rs124')
+parser.add_argument('--suite', choices=['rs124', 'bench', 'compat', 'rs125', 'ftb126', 'chapel126'], default='rs124')
+parser.add_argument('--ftb-legacy', action='store_true')
+parser.add_argument('--ftb-rsi', action='store_true')
+parser.add_argument('--chapel-mods', type=Path, help='Read-only directory containing exactly one Goety and Revelation JAR')
 parser.add_argument('--legacy-storage', action='store_true')
 parser.add_argument('--disk', default='', help='空为普通存储块，否则为磁盘物品注册 ID')
 parser.add_argument('--java', type=Path, default=Path(r'D:/Java/JDK/JDK17/bin/java.exe'))
@@ -17,7 +20,7 @@ parser.add_argument('--template', type=Path, default=root/'run/qa124-minimal-47.
 args = parser.parse_args()
 version = next(p for p in (args.pack/'versions').iterdir() if '涟漪之篇' in p.name)
 manifest = json.loads((version/(version.name+'.json')).read_text(encoding='utf-8'))
-case = root/'run'/(('qa124-production-' if args.suite == 'rs124' else 'qa125-'+args.suite+'-')+str(time.time_ns()))
+case = root/'run'/(('qa124-production-' if args.suite == 'rs124' else ('qa126-' if args.suite.endswith('126') else 'qa125-')+args.suite+'-')+str(time.time_ns()))
 (case/'mods').mkdir(parents=True)
 (case/'natives').mkdir()
 shutil.copytree(args.template, case/'saves/RsQa124', ignore=shutil.ignore_patterns('session.lock'))
@@ -44,6 +47,23 @@ if args.suite != 'rs124':
         'lootr-0.7.35.94.jar','backpacks-3.24.35.1675.jar','core-1.3.21.1676.jar')
     for name in (*versions, 'rs-1.12.4.jar','rsaddons-0.10.0.jar','curios-5.14.1.jar','rsbooster-41.jar'):
         shutil.copy2(root/'libs'/name, case/'mods'/name)
+if args.suite == 'ftb126':
+    for name in ('beyonddimensions-0.8.9.jar', 'compixel-0.1.18.jar', 'architectury-9.2.14-forge.jar',
+                 'ftb-teams-forge-2001.3.1.jar', 'ftb-xmod-compat-forge-2.1.3.jar',
+                 'ftb-quests-forge-' + ('2001.4.13' if args.ftb_legacy else '2001.4.22') + '.jar',
+                 'ftb-library-forge-' + ('2001.2.9' if args.ftb_legacy else '2001.2.12') + '.jar'):
+        shutil.copy2(root/'libs'/name, case/'mods'/name)
+    if args.ftb_rsi:
+        patterns += ['rs_integration-1.5.1.jar', '*jei-1.20.1-forge*.jar']
+if args.suite == 'chapel126':
+    if not args.chapel_mods: parser.error('--chapel-mods required for chapel126')
+    for pattern in ('*goety-2.5*.jar', '*Goety*Revelation*.jar'):
+        found = list(args.chapel_mods.glob(pattern))
+        if len(found) != 1: raise RuntimeError(f'{pattern}: {found}')
+        shutil.copy2(found[0], case/'mods'/found[0].name)
+    for lib in args.chapel_mods.glob('*EndingLibrary*.jar'):
+        shutil.copy2(lib, case/'mods'/lib.name)
+    shutil.copy2(root/'libs/explorer-1.3.4.jar', case/'mods/explorer-1.3.4.jar')
 for pattern in patterns:
     matches = list((version/'mods').glob(pattern))
     if len(matches) != 1: raise RuntimeError(f'{pattern}: expected one JAR, got {matches}')
@@ -95,9 +115,10 @@ with (case/'console.log').open('w',encoding='utf-8') as log:
     print('exit',process.returncode,flush=True)
 text=(case/'console.log').read_text(encoding='utf-8',errors='replace')
 if args.suite != 'rs124':
-    print('\n'.join(line for line in text.splitlines() if 'QA125_' in line))
-    marker = {'bench':'QA125_BENCH_PASS', 'compat':'QA125_COMPAT_PASS', 'rs125':'QA125_RS_PASS'}[args.suite]
-    sys.exit(0 if marker in text and process.returncode == 0 else 1)
+    print('\n'.join(line for line in text.splitlines() if 'QA125_' in line or 'QA126_' in line))
+    marker = {'bench':'QA125_BENCH_PASS', 'compat':'QA125_COMPAT_PASS', 'rs125':'QA125_RS_PASS', 'ftb126':'QA126_FTB_PASS', 'chapel126':'QA126_CHAPEL_PASS'}[args.suite]
+    extra = args.suite != 'ftb126' or 'QA126_BD_PASS' in text
+    sys.exit(0 if marker in text and extra and process.returncode == 0 else 1)
 print('\n'.join(line for line in text.splitlines() if 'RS_CLIENT_FINISHED' in line or 'RS_CLIENT_SETUP_FAILED' in line))
 
 match = re.search(r'RS_CLIENT_FINISHED opens=20 failures=(\d+)', text)

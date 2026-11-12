@@ -22,6 +22,7 @@ public final class NearbyProductionChecks {
   static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger("nearby-qa125");
   static volatile boolean done;
   static volatile boolean running;
+  static volatile String questFramePhase = "";
   private static ServerPlayer player;
   private static ItemStack magnet;
   private static Object engine, state;
@@ -38,6 +39,16 @@ public final class NearbyProductionChecks {
     if (SUITE.isEmpty() || done || event.phase != TickEvent.Phase.END
         || event.getServer().getPlayerList().getPlayers().isEmpty()) return;
     try {
+      if ("chapel126".equals(SUITE)) {
+        Production126Chapel.tick(event.getServer().getPlayerList().getPlayers().get(0));
+        return;
+      }
+      if ("ftb126".equals(SUITE)) {
+        var fixture = Class.forName("dev.rsqa124.Production126Quests");
+        var tick = fixture.getDeclaredMethod("tick", ServerPlayer.class);
+        tick.invoke(null, event.getServer().getPlayerList().getPlayers().get(0));
+        return;
+      }
       if ("rs125".equals(SUITE)) {
         Production125Rs.tick(event.getServer().getPlayerList().getPlayers().get(0));
         return;

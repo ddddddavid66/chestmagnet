@@ -1,5 +1,5 @@
 plugins { id 'java'; id 'net.minecraftforge.gradle' version '6.0.54' }
-version = '1.2.5'
+version = '1.2.6'
 group = 'dev.chestmagnet'
 base { archivesName = 'chestmagnet-forge-1.20.1' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
@@ -18,6 +18,15 @@ repositories {
     flatDir { dirs 'libs' }
 }
 dependencies {
+    def questVersion = project.hasProperty('qa126Old') ? '2001.4.13' : '2001.4.22'
+    def optional126 = ["ftb-quests-forge:${questVersion}", 'beyonddimensions:0.8.9']
+    optional126.each { compileOnly fg.deobf("local:${it}") }
+    if (project.hasProperty('qa126')) {
+        (optional126 + ['compixel:0.1.18', 'architectury:9.2.14-forge',
+            'ftb-teams-forge:2001.3.1',
+            'ftb-library-forge:' + (project.hasProperty('qa126Old') ? '2001.2.9' : '2001.2.12'),
+            'ftb-xmod-compat-forge:2.1.3']).each { runtimeOnly fg.deobf("local:${it}") }
+    }
     minecraft "net.minecraftforge:forge:1.20.1-${project.findProperty('forgeVersion') ?: '47.4.10'}"
     if(project.hasProperty('withCompass')) runtimeOnly fg.deobf('local:explorer:1.3.4')
     def storage = project.hasProperty('qa125Legacy')
@@ -93,6 +102,33 @@ if (project.hasProperty('verification')) {
     tasks.named('processResources') {
         doLast {
             file("$destinationDir/META-INF/mods.toml").append('\n[[mods]]\nmodId="rsqa124"\nversion="1"\ndisplayName="RS QA (test only)"\n', 'UTF-8')
+        }
+    }
+}
+
+if (!project.hasProperty('qa126')) {
+    sourceSets.main.java.exclude '**/Storage126Tests.java', '**/Production126Quests.java'
+}
+if (project.hasProperty('qa126')) {
+    // Compixel with-Kotlin 已提供 JetBrains 注解，避免 ForgeGradle 开发启动重复导出包。
+    configurations.configureEach { exclude group: 'org.jetbrains', module: 'annotations' }
+    minecraft.runs.configureEach {
+        workingDirectory project.file('run/qa126-' + (project.findProperty('forgeVersion') ?: '47.4.10')
+            + (project.hasProperty('qa126Old') ? '-legacy' : '-current'))
+    }
+    fileTree('src/verification/java').matching { include '**/*Tests.java' }.each {
+        if (!(it.name in ['Storage126Tests.java', 'NearbyTests.java'])) sourceSets.main.java.exclude '**/' + it.name
+    }
+}
+
+// 仅为最低版本探测生成测试用 manifest；正式构建不会由命令行悄悄降低门槛。
+if (project.hasProperty('verification') && project.hasProperty('qa126ForgeFloor')) {
+    tasks.named('processResources') {
+        doLast {
+            def probe = project.findProperty('forgeVersion')
+            if (!(probe in ['47.2.18', '47.3.0'])) throw new GradleException('unexpected Forge probe version')
+            def manifest = file("$destinationDir/META-INF/mods.toml")
+            manifest.setText(manifest.getText('UTF-8').replace('[47.2.18,48)', "[${probe},48)"), 'UTF-8')
         }
     }
 }

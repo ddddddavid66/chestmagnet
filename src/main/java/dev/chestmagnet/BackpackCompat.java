@@ -55,6 +55,27 @@ public final class BackpackCompat {
     }
     if (wrappers.isEmpty()) return Destinations.failed("未携带可用背包，请切换物品栏/RS");
     return new Destinations.Target() {
+      @Override
+      public long count(ItemStack key, java.util.function.Predicate<ItemStack> matches,
+          long limit, long deadline) {
+        long amount = 0;
+        int slotsRead = 0;
+        for (var wrapper : wrappers) {
+          if (slotsRead >= 128 && System.nanoTime() >= deadline) break;
+          var inventory = wrapper.getInventoryHandler();
+          for (int slot = 0; slot < inventory.getSlots() && amount < limit; slot++) {
+            // 已解析的背包允许一个有上限的短批次，防止首次打开原生库存耗尽
+            // 软预算后连第一个槽也永远读不到。单次从真实库存重查，不累计旧槽。
+            if (++slotsRead > 1024 || (slotsRead > 128 && (slotsRead & 15) == 1
+                && System.nanoTime() >= deadline)) return amount;
+            var stack = inventory.getStackInSlot(slot);
+            if (!stack.isEmpty() && matches.test(stack))
+              amount += Math.min(limit - amount, stack.getCount());
+          }
+        }
+        return amount;
+      }
+
       public ItemStack insert(ItemStack s, boolean simulate) {
         var left = s.copy();
         for (var w : wrappers) {

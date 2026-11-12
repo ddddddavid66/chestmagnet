@@ -105,7 +105,8 @@ public final class Sources {
         net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(b.getBlockState().getBlock());
     if (id == null
         || id.getNamespace().startsWith("sophisticated")
-        || id.getNamespace().startsWith("refinedstorage")) return false;
+        || id.getNamespace().startsWith("refinedstorage")
+        || id.getNamespace().equals("beyonddimensions")) return false;
     if (id.getNamespace().equals("lootr")) return b instanceof Container;
     return SourceExtras.known(b)
         || b instanceof ChestBlockEntity

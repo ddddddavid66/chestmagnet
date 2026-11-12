@@ -18,6 +18,7 @@ public final class NearbyClientChecks {
   private static int ticks;
   private static long lastFrame;
   private static final ArrayList<Long> frames = new ArrayList<>();
+  private static final java.util.Map<String, ArrayList<Long>> questFrames = new java.util.HashMap<>();
 
   @SubscribeEvent
   public static void tick(TickEvent.ClientTickEvent event) {
@@ -57,13 +58,28 @@ public final class NearbyClientChecks {
       if (!frames.isEmpty())
         NearbyProductionChecks.LOG.info("QA125_FRAME n={} p50_us={} p95_us={}", frames.size(),
             frames.get(frames.size() / 2), frames.get((frames.size() - 1) * 95 / 100));
+      for (var entry : questFrames.entrySet()) {
+        var times = entry.getValue();
+        times.sort(Long::compare);
+        NearbyProductionChecks.LOG.info("QA126_FRAME phase={} n={} p50_us={} p95_us={}",
+            entry.getKey(), times.size(), times.get(times.size() / 2), times.get((times.size() - 1) * 95 / 100));
+      }
       mc.stop();
     }
   }
 
   @SubscribeEvent
   public static void frame(TickEvent.RenderTickEvent event) {
-    if (!"bench".equals(NearbyProductionChecks.SUITE) || event.phase != TickEvent.Phase.END) return;
+    if (event.phase != TickEvent.Phase.END) return;
+    if ("ftb126".equals(NearbyProductionChecks.SUITE)) {
+      long now = System.nanoTime();
+      String phase = NearbyProductionChecks.questFramePhase;
+      if (!phase.isEmpty() && lastFrame != 0)
+        questFrames.computeIfAbsent(phase, unused -> new ArrayList<>()).add((now - lastFrame) / 1000);
+      lastFrame = now;
+      return;
+    }
+    if (!"bench".equals(NearbyProductionChecks.SUITE)) return;
     long now = System.nanoTime();
     if (NearbyProductionChecks.running && lastFrame != 0) frames.add((now - lastFrame) / 1000);
     lastFrame = now;

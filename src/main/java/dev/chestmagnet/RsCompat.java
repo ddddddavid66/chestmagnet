@@ -64,6 +64,14 @@ public final class RsCompat {
   }
 
   public static Destinations.Target target(ServerPlayer p) {
+    return target(p, false);
+  }
+
+  static Destinations.Target questTarget(ServerPlayer p) {
+    return target(p, true);
+  }
+
+  private static Destinations.Target target(ServerPlayer p, boolean readOnly) {
     var error = new Failure();
     for (ItemStack s : terminals(p)) {
       String id = String.valueOf(ForgeRegistries.ITEMS.getKey(s.getItem()));
@@ -116,8 +124,8 @@ public final class RsCompat {
             : "超出 RS 无线覆盖范围");
         continue;
       }
-      if (!n.getSecurityManager().hasPermission(Permission.INSERT, p)) {
-        error.at(5, "没有 RS 存入权限");
+      if (!n.getSecurityManager().hasPermission(readOnly ? Permission.EXTRACT : Permission.INSERT, p)) {
+        error.at(5, readOnly ? "没有 RS 取出权限" : "没有 RS 存入权限");
         continue;
       }
       boolean useEnergy =
@@ -129,7 +137,7 @@ public final class RsCompat {
       // Addons 合成网格继承原版 ItemGridHandler：插入费仍读取 RS 的 getInsertUsage。
       // 它自己的配置只决定是否耗电，不能误用 craftUsage/openUsage 代替插入费。
       int fee =
-          id.contains("creative") || !useEnergy
+          readOnly || id.contains("creative") || !useEnergy
               ? 0
               : RS.SERVER_CONFIG.getWirelessGrid().getInsertUsage();
       var energy = s.getCapability(ForgeCapabilities.ENERGY).orElse(null);
@@ -141,12 +149,27 @@ public final class RsCompat {
         private Set<Object> storages;
 
         public ItemStack insert(ItemStack stack, boolean simulate) {
+          if (readOnly) return stack;
           if (fee > 0 && energy.extractEnergy(fee, true) < fee) return stack;
           var left =
               n.insertItem(stack, stack.getCount(), simulate ? Action.SIMULATE : Action.PERFORM);
           if (!simulate && left.getCount() < stack.getCount() && fee > 0)
             energy.extractEnergy(fee, false);
           return left;
+        }
+
+        @Override
+        public long count(ItemStack key, java.util.function.Predicate<ItemStack> matches,
+            long limit, long deadline) {
+          if (!n.getSecurityManager().hasPermission(Permission.EXTRACT, p)) return 0;
+          long amount = 0;
+          int variants = 0;
+          for (var entry : n.getItemStorageCache().getList().getStacks(key)) {
+            if (amount >= limit || ++variants > 128 || (variants > 4 && System.nanoTime() >= deadline)) break;
+            var stack = entry.getStack();
+            if (matches.test(stack)) amount += Math.min(limit - amount, stack.getCount());
+          }
+          return amount;
         }
 
         public boolean loops(Sources.Ref source, ServerPlayer player) {

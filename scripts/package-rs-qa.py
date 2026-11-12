@@ -10,7 +10,13 @@ with zipfile.ZipFile(source) as archive, zipfile.ZipFile(out,'w',zipfile.ZIP_DEF
     for name in files: result.writestr(name,archive.read(name))
     if 'dev/rsqa124/mixin/EngineCountMixin.class' in files:
         result.writestr('META-INF/MANIFEST.MF','Manifest-Version: 1.0\r\nMixinConfigs: nearbyqa.mixins.json\r\n\r\n')
-        result.writestr('nearbyqa.mixins.json','{"required":false,"minVersion":"0.8","package":"dev.rsqa124.mixin","compatibilityLevel":"JAVA_17","mixins":["EngineCountMixin","SourceCountMixin"],"injectors":{"defaultRequire":1}}')
+        import json
+        mixins = ["EngineCountMixin", "SourceCountMixin"]
+        if 'dev/rsqa124/Production126Quests.class' in files:
+            mixins.append("QuestTimingMixin")
+        result.writestr('nearbyqa.mixins.json',json.dumps({
+            "required": False, "minVersion": "0.8", "package": "dev.rsqa124.mixin",
+            "compatibilityLevel": "JAVA_17", "mixins": mixins, "injectors": {"defaultRequire": 1}}))
     result.writestr('pack.mcmeta','{"pack":{"pack_format":15,"description":"RS QA only"}}')
     result.writestr('META-INF/mods.toml','modLoader="javafml"\nloaderVersion="[47,)"\nlicense="MIT"\n[[mods]]\nmodId="rsqa124"\nversion="1"\ndisplayName="RS QA (test only)"\n')
 print(out)

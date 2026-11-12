@@ -9,6 +9,12 @@ public final class Destinations {
   public interface Target {
     ItemStack insert(ItemStack stack, boolean simulate);
 
+    /** 任务检测只读；返回足够证明的当前数量，不从库存提取。 */
+    default long count(ItemStack key, java.util.function.Predicate<ItemStack> matches,
+        long limit, long deadline) {
+      return 0;
+    }
+
     default boolean unavailable() {
       return false;
     }
@@ -50,6 +56,10 @@ public final class Destinations {
       return ModList.get().isLoaded("sophisticatedbackpacks")
           ? BackpackCompat.target(p)
           : failed("未安装精妙背包，请切换物品栏");
+    if (mode == 3)
+      return ModList.get().isLoaded("beyonddimensions")
+          ? beyond(p)
+          : failed("未安装超越维度，请切换吸收模式");
     return new Target() {
       public ItemStack insert(ItemStack stack, boolean simulate) {
         ItemStack remaining = stack.copy();
@@ -74,6 +84,14 @@ public final class Destinations {
         return remaining;
       }
     };
+  }
+
+  private static Target beyond(ServerPlayer player) {
+    try {
+      return BeyondCompat.target(player);
+    } catch (LinkageError error) {
+      return failed("超越维度接口不兼容；已停止向该网络存入");
+    }
   }
 
   public static Target failed(String reason) {

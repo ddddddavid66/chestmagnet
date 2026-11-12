@@ -50,6 +50,7 @@ public class Engine {
 
   public static void toggle(ServerPlayer p, ItemStack s) {
     Data.tag(s).putBoolean("Enabled", !Data.enabled(s));
+    QuestDetection.remove(p.getUUID());
     if (!Data.enabled(s)) StructureJobs.stopForMagnet(p, s, "玩家关闭磁铁");
     else STATES.remove(p.getUUID());
     p.getInventory().setChanged();
@@ -68,6 +69,7 @@ public class Engine {
     Net.clearPlayer(e.getEntity().getUUID());
     StructureJobs.cancel(e.getEntity().getUUID());
     AutoStructures.clear(e.getEntity().getUUID());
+    QuestDetection.remove(e.getEntity().getUUID());
   }
 
   @SubscribeEvent
@@ -85,6 +87,7 @@ public class Engine {
     Net.clearAll();
     StructureJobs.clear();
     AutoStructures.clear();
+    QuestDetection.clear();
     if (ModList.get().isLoaded("lootr")) LootrCompat.clear();
   }
 
@@ -159,6 +162,7 @@ public class Engine {
       Faults.clearContext();
       if (System.nanoTime() >= deadline) break;
     }
+    QuestDetection.tick(players, deadline);
   }
 
   void work(ServerPlayer p, ItemStack m, State s, long deadline) {
@@ -218,6 +222,7 @@ public class Engine {
       return;
     }
     if (hadPending) {
+      QuestDetection.wake(p);
       s.status = "开箱产物已处理";
       return;
     }
@@ -294,6 +299,7 @@ public class Engine {
         }
         // 先拿到真实物品再交给目标；异常中断时保留待核对缓存，不凭模拟结果复制物品。
         int done = Transfer.move(inv, slot, accepted, target, m);
+        if (done > 0) QuestDetection.wake(p);
         if (Data.tag(m).contains("Recovery")) {
           Data.tag(m).putBoolean("Enabled", false);
           s.status = "余量或异常已保存至恢复缓存，磁铁暂停";

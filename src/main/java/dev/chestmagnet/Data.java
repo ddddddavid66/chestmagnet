@@ -14,7 +14,7 @@ public final class Data {
   }
 
   public static int mode(ItemStack s) {
-    return Math.floorMod(tag(s).getInt("Mode"), 3);
+    return normalizeMode(tag(s).getInt("Mode"));
   }
 
   /** 旧磁铁不自动确认整座结构，必须由玩家明确开启。 */
@@ -22,8 +22,16 @@ public final class Data {
     return tag(s).getBoolean("AutoStructure");
   }
 
+  public static int normalizeMode(int value) {
+    return Math.floorMod(value, 4);
+  }
+
+  public static boolean questDetection(CompoundTag data) {
+    return !data.contains("QuestDetection") || data.getBoolean("QuestDetection");
+  }
+
   public static String modeName(int m) {
-    return new String[] {"物品栏", "RS", "背包"}[Math.floorMod(m, 3)];
+    return new String[] {"物品栏", "RS", "背包", "超越维度"}[normalizeMode(m)];
   }
 
   public static int radius(ItemStack s, String axis) {
