@@ -40,7 +40,11 @@ public final class Storage126Tests {
     h.assertTrue(dest.insert(diamond, true).getCount() == 2, "simulation respects native capacity");
     h.assertTrue(first.getUnifiedStorage().getStackByKey(key).amount() == 0, "simulation is read only");
     h.assertTrue(dest.insert(diamond, false).getCount() == 2, "partial insert keeps remainder");
-    h.assertTrue(dest.count(diamond, s -> s.is(Items.DIAMOND), 99, Long.MAX_VALUE) == 5, "indexed stock");
+    var ids = java.util.Set.of(Items.DIAMOND);
+    try (var stock = dest.stock(ids)) {
+      var match = new QuestMatch(ids, s -> s.is(Items.DIAMOND));
+      h.assertTrue(stock.step(match, 99, Long.MAX_VALUE) && stock.valid() && stock.amount() == 5, "indexed stock");
+    }
     h.assertTrue(first.getUnifiedStorage().getStackByKey(key).amount() == 5
         && second.getUnifiedStorage().getStackByKey(key).amount() == 0, "no fallthrough between networks");
     // GameTestServer 未必安装 Forge 的当前服务器引用，授权换网由正式客户端覆盖。

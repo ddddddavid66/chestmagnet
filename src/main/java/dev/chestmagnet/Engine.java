@@ -74,7 +74,7 @@ public class Engine {
   @SubscribeEvent
   public void clonePlayer(PlayerEvent.Clone e) {
     if (e.getOriginal() instanceof ServerPlayer old && e.getEntity() instanceof ServerPlayer player)
-      { AutoStructures.copy(old, player); CompassTargets.copy(old, player); }
+      { AutoStructures.copy(old, player); CompassTargets.copy(old, player); RecentItems.copy(old, player); }
   }
 
   @SubscribeEvent
@@ -139,10 +139,13 @@ public class Engine {
     if (players.isEmpty()) return;
     long deadline = System.nanoTime() + Config.BUDGET.get() * 1000L;
     Net.flushPreviews(e.getServer());
-    AutoStructures.tick(e.getServer(), deadline);
-    StructureJobs.tick(e.getServer(), deadline);
+    // 吸收持续跑满时，每十 tick 为任务检测预留少量原有预算，避免永远排不到。
+    long collectionDeadline = e.getServer().getTickCount() % 10 == 0 && QuestDetection.hasPending(players, e.getServer().getTickCount())
+        ? deadline - Math.min(350_000L, Config.BUDGET.get() * 100L) : deadline;
+    AutoStructures.tick(e.getServer(), collectionDeadline);
+    StructureJobs.tick(e.getServer(), collectionDeadline);
     for (int n = 0; n < players.size(); n++) {
-      if (System.nanoTime() >= deadline) break;
+      if (System.nanoTime() >= collectionDeadline) break;
       var p = players.get(Math.floorMod(playerCursor++, players.size()));
       if (!p.isAlive() || p.isSpectator()) continue;
       var magnet = active(p);
@@ -150,7 +153,7 @@ public class Engine {
       var state = STATES.computeIfAbsent(p.getUUID(), x -> new State());
       try {
         Faults.migrate(p, magnet);
-        if (Data.enabled(magnet)) work(p, magnet, state, deadline);
+        if (Data.enabled(magnet)) work(p, magnet, state, collectionDeadline);
       } catch (Exception ex) {
         Data.tag(magnet).putBoolean("Enabled", false);
         state.status = "处理已暂停：" + String.valueOf(ex.getMessage());
@@ -206,7 +209,7 @@ public class Engine {
     long discoveryDeadline = s.sources.isEmpty() ? deadline
         : now + Math.max(0, deadline - now) / 3;
     s.scan.step(p, bounds, locked, frames, discoveryDeadline, register);
-    var target = Destinations.deferred(() -> Destinations.get(p, Data.mode(m)));
+    var target = Destinations.tracked(p, mode);
     if (LootCapture.pending(m) && target.unavailable()) {
       s.status = target.reason();
       notify(p, s);
@@ -221,7 +224,6 @@ public class Engine {
       return;
     }
     if (hadPending) {
-      QuestDetection.wake(p);
       s.status = "开箱产物已处理";
       return;
     }
@@ -298,7 +300,6 @@ public class Engine {
         }
         // 先拿到真实物品再交给目标；异常中断时保留待核对缓存，不凭模拟结果复制物品。
         int done = Transfer.move(inv, slot, accepted, target, m);
-        if (done > 0) QuestDetection.wake(p);
         if (Data.tag(m).contains("Recovery")) {
           Data.tag(m).putBoolean("Enabled", false);
           s.status = "余量或异常已保存至恢复缓存，磁铁暂停";

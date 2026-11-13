@@ -519,7 +519,7 @@ public final class StructureJobs {
             + Math.max(100_000L, (deadline - System.nanoTime()) / (jobs.size() - visit)));
         var magnet = item(p, j);
         if (j.preparing) prepareAutomatic(p, j, magnet);
-        var target = Destinations.deferred(() -> Destinations.get(p, Data.mode(magnet)));
+        var target = Destinations.tracked(p, Data.mode(magnet));
         // 目标满/离线只有限期低频重试；真正异常不会进入此分支。
         if (j.waitingTarget) {
           if (serviceTargetWait(j, () -> target,
@@ -758,7 +758,7 @@ public final class StructureJobs {
   }
 
   static void collect(ServerPlayer p, Job j, long deadline) {
-    collect(p, j, deadline, Destinations.deferred(() -> Destinations.get(p, Data.mode(item(p, j)))));
+    collect(p, j, deadline, Destinations.tracked(p, Data.mode(item(p, j))));
   }
 
   private static void collect(ServerPlayer p, Job j, long deadline, Destinations.Target target) {
@@ -791,7 +791,6 @@ public final class StructureJobs {
     }
     if (hadPending) {
       j.processed += pendingBefore;
-      if (pendingBefore > 0) QuestDetection.wake(p);
       j.waitingTarget = false; j.waitStartedNanos = 0;
       return;
     }
@@ -860,7 +859,7 @@ public final class StructureJobs {
         j.waitingTarget = false; j.waitStartedNanos = 0;
         int n = Transfer.move(inv, j.slot, accepted, target, magnet);
         j.processed += n;
-        if (n > 0) { moved++; QuestDetection.wake(p); } else j.slot++;
+        if (n > 0) moved++; else j.slot++;
         if (Data.tag(magnet).contains("Recovery")) {
           j.status = "转移余量已进入恢复缓存，任务暂停";
           j.paused = true; releaseForPause(j); return;

@@ -13,10 +13,17 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
   private String status = "同步中…";
   private int max = 64, tab, page, scroll;
   private boolean confirm, dirty;
+  private int category, historyPage, historyRequest = -1, historySequence, historyWait;
+  private CompoundTag history;
+  private java.util.List<RecentRow> recentRows = java.util.List.of();
+
+  private record RecentRow(net.minecraft.world.item.ItemStack icon, String name, String amount,
+      String detail, java.util.List<Component> tooltip) {}
+  private int contentHeight;
   private final EditBox[] axes = new EditBox[3];
   private final String[] draft = new String[3];
   private int contentTop, contentBottom;
-  private static final String[] TABS = {"常规", "范围", "来源", "排除", "诊断"};
+  private static final String[] TABS = {"常规", "范围", "最近获取物品", "排除", "诊断"};
 
   public MagnetScreen(MagnetMenu menu, Inventory inv, Component title) {
     super(menu, inv, title);
@@ -40,7 +47,7 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
     status = s.status();
     max = s.maxRadius();
     // 不销毁正在输入的范围文本；其他页随服务端状态刷新。
-    if (!(tab == 1 && dirty) && minecraft != null) init();
+    if (tab != 2 && !(tab == 1 && dirty) && minecraft != null) init();
   }
 
   private void send(int action, int value) {
@@ -86,23 +93,34 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
       status = ClientEvents.latest.status();
       max = ClientEvents.latest.maxRadius();
     }
-    int columns = imageWidth < 270 ? 3 : 5, rows = (5 + columns - 1) / columns;
-    int tw = (imageWidth - 24 - (columns - 1) * 4) / columns;
+    int available = imageWidth - 24, required = 16;
+    for (var label : TABS) required += font.width(label) + 12;
+    int columns = available >= required ? 5 : available >= 190 ? 3 : 2;
+    int rows = (TABS.length + columns - 1) / columns;
+    int nx = 12;
+    int tw = (available - (columns - 1) * 4) / columns;
     for (int i = 0; i < 5; i++) {
       final int t = i;
+      if (i % columns == 0) nx = 12;
+      int navWidth = columns == 5
+          ? font.width(TABS[i]) + 12 + (available - required) / 5
+          : Math.max(tw, font.width(TABS[i]) + 10);
+      if (columns == 3 && i == 2) navWidth = available + 12 - nx;
       var b =
           fixed(
-              12 + (i % columns) * (tw + 4),
+              nx,
               27 + (i / columns) * 24,
-              tw,
+              navWidth,
               TABS[i],
               () -> {
                 tab = t;
                 scroll = 0;
                 confirm = false;
                 dirty = false;
+                if (tab == 2) loadRecent(0);
                 init();
               });
+      nx += navWidth + 4;
       if (tab == i)
         b.setMessage(Component.literal(TABS[i]).withStyle(net.minecraft.ChatFormatting.GOLD));
     }
@@ -110,6 +128,13 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
     contentTop = 27 + rows * 24 + 4;
     contentBottom = imageHeight - 42;
     fixed(imageWidth - 68, imageHeight - 26, 56, "完成", this::onClose);
+    contentHeight = switch (tab) {
+      case 0 -> 202;
+      case 1 -> 278;
+      case 2 -> 44 + (history == null ? 1 : history.getList("Rows", 10).size()) * 27;
+      default -> 156;
+    };
+    scroll = Math.min(scroll, Math.max(0, contentHeight - (contentBottom - contentTop)));
     if (tab == 0) {
       row(0, enabled() ? "磁铁吸附：已开启" : "磁铁吸附：已关闭", () -> send(2, 0));
       row(24, "吸收模式：" + Data.modeName(data.getInt("Mode")), () -> send(1, data.getInt("Mode") + 1));
@@ -163,17 +188,28 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
             for (int i = 0; i < 3; i++) send(3 + i, values[i]);
             dirty = false;
           });
-    } else if (tab == 2) {
       row(
-          0,
+          166,
           "上锁战利品："
               + (!data.contains("CollectLocked") || data.getBoolean("CollectLocked") ? "开启" : "关闭"),
           () -> send(9, 0));
       row(
-          26,
+          192,
           "展示框物品："
               + (!data.contains("CollectFrames") || data.getBoolean("CollectFrames") ? "开启" : "关闭"),
           () -> send(10, 0));
+    } else if (tab == 2) {
+      int half = (imageWidth - 28) / 2;
+      fixed(12, contentTop, half, "分类：" + RecentItems.CATEGORIES[category], () -> {
+        category = (category + 1) % RecentItems.CATEGORIES.length;
+        loadRecent(0);
+        init();
+      });
+      fixed(16 + half, contentTop, half, "刷新", () -> { loadRecent(historyPage); init(); });
+      var previous = fixed(12, imageHeight - 26, 22, "<", () -> { loadRecent(historyPage - 1); init(); });
+      var next = fixed(38, imageHeight - 26, 22, ">", () -> { loadRecent(historyPage + 1); init(); });
+      previous.active = history != null && historyWait == 0 && historyPage > 0;
+      next.active = history != null && historyWait == 0 && historyPage + 1 < history.getInt("Pages");
     } else if (tab == 3) {
       var list = data.getList("Excluded", 10);
       int pages = Math.max(1, (list.size() + 2) / 3);
@@ -272,11 +308,13 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
           0xffe8bd68);
       for (int i = 0; i < 3; i++)
         text(g, new String[] {"东西 X · 半径", "上下 Y · 半径", "南北 Z · 半径"}[i], 30 + i * 26, 0xfff3ead4);
-      text(g, "只影响附近吸附，不改变结构收取范围", 136, 0xffc9bda6);
+      text(g, "半径只影响附近吸附，不改变结构范围", 135, 0xffc9bda6);
+      text(g, "收取来源", 151, 0xffe8bd68);
+      text(g, "收空后：天境解锁；密码锁清除", 221, 0xffc9bda6);
+      text(g, "冰冻箱留普通空箱；Tetra 容器拆除", 237, 0xffc9bda6);
+      text(g, "展示框保留空框；Lootr 保持个人库存", 253, 0xffc9bda6);
     } else if (tab == 2) {
-      text(g, "收空后：天境解锁；密码锁清除", 62, 0xffc9bda6);
-      text(g, "冰冻箱留普通空箱；Tetra容器拆除", 77, 0xffc9bda6);
-      text(g, "展示框保留空框；Lootr保持个人库存", 92, 0xffc9bda6);
+      drawRecent(g);
     } else if (tab == 3) {
       var list = data.getList("Excluded", 10);
       if (list.isEmpty()) text(g, "暂无排除记录；手持磁铁对准来源添加", 8, 0xffc9bda6);
@@ -301,7 +339,10 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
         imageHeight - 39,
         0xffe8bd68,
         false);
-    if (contentBottom - contentTop < (tab == 0 ? 202 : 156))
+    if (tab == 2) {
+      String paging = history == null ? "—" : (historyPage + 1) + "/" + history.getInt("Pages");
+      g.drawString(font, paging, 66, imageHeight - 20, 0xffc9bda6, false);
+    } else if (contentBottom - contentTop < contentHeight)
       g.drawString(font, "滚轮查看更多", 12, imageHeight - 20, 0xffc9bda6, false);
   }
 
@@ -311,7 +352,7 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
       scroll =
           Math.max(
               0,
-              Math.min(Math.max(0, (tab == 0 ? 202 : 156) - (contentBottom - contentTop)), scroll - (int) delta * 24));
+              Math.min(Math.max(0, contentHeight - (contentBottom - contentTop)), scroll - (int) delta * 24));
       init();
       return true;
     }
@@ -322,7 +363,122 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
   public void render(GuiGraphics g, int x, int y, float p) {
     renderBackground(g);
     super.render(g, x, y, p);
+    if (tab == 2) recentTooltip(g, x, y);
     renderTooltip(g, x, y);
+  }
+
+  private void loadRecent(int page) {
+    historyPage = Math.max(0, Math.min(11, page));
+    history = null;
+    recentRows = java.util.List.of();
+    scroll = 0;
+    historyWait = 60;
+    historyRequest = (++historySequence << 7) | (historyPage << 3) | category;
+    send(19, historyRequest);
+  }
+
+  static void receiveRecent(Net.RecentPage message) {
+    if (net.minecraft.client.Minecraft.getInstance().screen instanceof MagnetScreen screen
+        && screen.tab == 2 && message.identity().equals(screen.menu.identity)
+        && message.menuId() == screen.menu.containerId && message.request() == screen.historyRequest && message.data() != null) {
+      screen.history = message.data();
+      screen.recentRows = screen.readRecentRows();
+      screen.historyPage = screen.history.getInt("Page");
+      screen.historyWait = 0;
+      screen.init();
+    }
+  }
+
+  @Override
+  protected void containerTick() {
+    super.containerTick();
+    if (historyWait > 0) historyWait--;
+  }
+
+  private static final java.time.format.DateTimeFormatter CLOCK =
+      java.time.format.DateTimeFormatter.ofPattern("HH:mm").withZone(java.time.ZoneId.systemDefault());
+
+  private static net.minecraft.world.item.ItemStack icon(CompoundTag display) {
+    var id = net.minecraft.resources.ResourceLocation.tryParse(display.getString("Item"));
+    var item = id == null ? null : net.minecraftforge.registries.ForgeRegistries.ITEMS.getValue(id);
+    if (item == null || item == net.minecraft.world.item.Items.AIR) return net.minecraft.world.item.ItemStack.EMPTY;
+    var stack = new net.minecraft.world.item.ItemStack(item);
+    if (display.contains("Damage")) stack.setDamageValue(display.getInt("Damage"));
+    var enchants = display.getList("Enchants", 10);
+    if (!enchants.isEmpty()) stack.getOrCreateTag().put(
+        item instanceof net.minecraft.world.item.EnchantedBookItem ? "StoredEnchantments" : "Enchantments", enchants.copy());
+    return stack;
+  }
+
+  private static String itemName(CompoundTag display, net.minecraft.world.item.ItemStack icon) {
+    if (display.contains("Name")) return display.getString("Name");
+    String name = icon.isEmpty() ? display.getString("Item") : icon.getHoverName().getString();
+    return display.contains("Variant") ? name + " · " + display.getString("Variant") : name;
+  }
+
+  private static String receipt(int mode) {
+    return Data.modeName(mode) + " · " + switch (mode) {
+      case 1, 3 -> "网络已接收";
+      case 2 -> "已处理";
+      default -> "已存入";
+    };
+  }
+
+  private java.util.List<RecentRow> readRecentRows() {
+    var rows = history.getList("Rows", 10);
+    var decoded = new java.util.ArrayList<RecentRow>(rows.size());
+    for (int i = 0; i < rows.size(); i++) {
+      var row = rows.getCompound(i);
+      var display = row.getCompound("Display");
+      var icon = icon(display);
+      String name = itemName(display, icon);
+      var lines = new java.util.ArrayList<Component>();
+      lines.add(Component.literal(name));
+      net.minecraft.world.item.enchantment.EnchantmentHelper.getEnchantments(icon)
+          .forEach((enchant, level) -> lines.add(enchant.getFullname(level)));
+      int mode = display.getInt("Mode");
+      if (mode == 2) lines.add(Component.literal("背包已处理，可能已压缩或销毁"));
+      decoded.add(new RecentRow(icon, name, "×" + row.getLong("Count"),
+          receipt(mode) + "  " + CLOCK.format(java.time.Instant.ofEpochMilli(row.getLong("Time"))), lines));
+    }
+    return decoded;
+  }
+
+  private void drawRecent(GuiGraphics g) {
+    g.enableScissor(leftPos + 8, topPos + contentTop + 23, leftPos + imageWidth - 8,
+        topPos + Math.max(contentTop + 38, contentBottom));
+    g.drawString(font, "收取记录，不代表当前库存", 14, contentTop + 25, 0xffc9bda6, false);
+    if (history == null || history.getInt("Total") == 0) {
+      String empty = history == null ? (historyWait > 0 ? "正在读取…" : "未收到记录，请点击刷新") : "这个分类暂无记录";
+      g.drawString(font, empty, 14, contentTop + 47, 0xfff3ead4, false);
+    } else {
+      g.enableScissor(leftPos + 8, topPos + contentTop + 38, leftPos + imageWidth - 8,
+          topPos + Math.max(contentTop + 38, contentBottom));
+      for (int i = 0; i < recentRows.size(); i++) {
+        int y = contentTop + 42 + i * 27 - scroll;
+        if (y + 25 < contentTop + 36 || y >= contentBottom) continue;
+        var row = recentRows.get(i);
+        if (i % 2 == 0) g.fill(12, y, imageWidth - 12, y + 25, 0xff292d34);
+        g.renderItem(row.icon(), 15, y + 4);
+        String amount = row.amount();
+        int ax = imageWidth - 17 - font.width(amount);
+        g.drawString(font, amount, ax, y + 3, 0xffe8bd68, false);
+        g.drawString(font, font.plainSubstrByWidth(row.name(), Math.max(0, ax - 39)),
+            35, y + 3, 0xfff3ead4, false);
+        g.drawString(font, font.plainSubstrByWidth(row.detail(), imageWidth - 50),
+            35, y + 14, 0xffc9bda6, false);
+      }
+      g.disableScissor();
+    }
+    g.disableScissor();
+  }
+
+  private void recentTooltip(GuiGraphics g, int x, int y) {
+    if (history == null || x < leftPos + 12 || x >= leftPos + imageWidth - 12
+        || y < topPos + contentTop + 36 || y >= topPos + contentBottom) return;
+    int offset = y - topPos - contentTop - 42 + scroll;
+    if (offset < 0 || offset / 27 >= recentRows.size() || offset % 27 >= 25) return;
+    g.renderComponentTooltip(font, recentRows.get(offset / 27).tooltip(), x, y);
   }
 
   @Override

@@ -15,33 +15,26 @@ final class QuestCompat {
 
   static boolean step(ServerPlayer player, QuestDetection.Scan scan, long deadline) {
     var file = ServerQuestFile.INSTANCE;
-    if (file == null) return false;
-    var team = TeamData.get(player);
-    if (team == null || team.isLocked()) return false;
+    var team = file == null ? null : TeamData.get(player);
+    if (team == null || team.isLocked()) { scan.release(); return false; }
     var tasks = file.getSubmitTasks();
     int checked = 0;
     while (scan.task < tasks.size() && checked++ < 16 && System.nanoTime() < deadline) {
       var task = tasks.get(scan.task);
-      if (task instanceof ItemTask item && !item.consumesResources() && !item.isOnlyFromCrafting()
-          && !item.isTaskScreenOnly() && !team.isCompleted(item) && team.canStartTasks(item.getQuest())
-          && sequenceAllows(team, item)) {
-        while (scan.destination < MODES.length
-            && !ModList.get().isLoaded(MOD_IDS[scan.destination])) scan.destination++;
-        if (scan.destination < MODES.length) {
-          int mode = MODES[scan.destination++];
-          file.withPlayerContext(player, () -> checkOwned(player, team, item, mode, deadline));
-          if (scan.destination == MODES.length) { scan.task++; scan.destination = 0; }
-          // 单个目的地超时不会让排在后面的网络一直得不到时间片。
-          return scan.task < tasks.size();
-        }
+      if (!(task instanceof ItemTask item) || !eligible(team, item)) {
+        scan.advance();
+        continue;
       }
-      scan.task++;
-      scan.destination = 0;
+      file.withPlayerContext(player, () -> checkOwned(player, team, item, scan, deadline));
+      return scan.task < tasks.size();
     }
+    if (scan.task >= tasks.size()) scan.release();
     return scan.task < tasks.size();
   }
 
-  private static boolean sequenceAllows(TeamData team, ItemTask item) {
+  private static boolean eligible(TeamData team, ItemTask item) {
+    if (item.consumesResources() || item.isOnlyFromCrafting() || item.isTaskScreenOnly()
+        || team.isCompleted(item) || !team.canStartTasks(item.getQuest())) return false;
     var quest = item.getQuest();
     if (!quest.getRequireSequentialTasks()) return true;
     for (var previous : quest.getTasksAsList()) {
@@ -51,15 +44,43 @@ final class QuestCompat {
     return false;
   }
 
-  private static void checkOwned(ServerPlayer player, TeamData team, ItemTask item, int mode, long deadline) {
-    var key = item.getItemStack();
-    long limit = item.getMaxProgress(), known = team.getProgress(item);
-    if (key.isEmpty() || limit <= known) return;
-    // 三处可能通过其它模组桥接，只采可信的最高值，不跨网络累加。
-    var view = mode == 1 ? RsCompat.questTarget(player) : Destinations.get(player, mode);
-    long amount = view.count(key, item::test, limit, deadline);
-    if (amount > known) {
-      if (!QuestDetection.carried(player).isEmpty()) team.setProgress(item, amount);
+  private static Destinations.Target view(ServerPlayer player, int mode) {
+    return mode == 1 ? RsCompat.questTarget(player) : Destinations.get(player, mode);
+  }
+
+  private static void checkOwned(ServerPlayer player, TeamData team, ItemTask item,
+      QuestDetection.Scan scan, long deadline) {
+    if (scan.current != item || scan.team != team || scan.sample != item.getItemStack()) {
+      scan.release();
+      scan.current = item;
+      scan.team = team;
+      scan.sample = item.getItemStack();
+      scan.destination = 0;
+      scan.match = QuestMatch.compile(item);
     }
+    if (scan.match == null) { scan.advance(); return; }
+    while (scan.destination < MODES.length
+        && !ModList.get().isLoaded(MOD_IDS[scan.destination])) scan.destination++;
+    if (scan.destination == MODES.length) { scan.advance(); return; }
+    int mode = MODES[scan.destination];
+    if (scan.reader == null) {
+      scan.reader = mode == 2 ? new BackpackQuestStock(player)
+          : view(player, mode).stock(scan.match.candidates());
+      if (scan.reader == null) { scan.nextDestination(); return; }
+    }
+    if (scan.reader instanceof QuestStock.Indexed index && !index.valid()) {
+      scan.nextDestination(); // 下一轮重新读，不让高频变动的一个仓库饿死其他仓库。
+      return;
+    }
+    long limit = item.getMaxProgress();
+    if (!scan.reader.step(scan.match, limit, deadline)) return;
+    long amount = scan.reader.amount();
+    if (amount > team.getProgress(item) && scan.reader.valid()
+        && (!(scan.reader instanceof QuestStock.Indexed idx)
+            || idx.identity() == view(player, mode).stockIdentity())
+        && !QuestDetection.carried(player).isEmpty() && eligible(team, item)) {
+      team.setProgress(item, amount);
+    }
+    scan.nextDestination();
   }
 }

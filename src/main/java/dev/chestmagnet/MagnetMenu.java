@@ -12,6 +12,13 @@ public class MagnetMenu extends AbstractContainerMenu {
   public record InteractionHandSlot(boolean offhand) {}
 
   private final Player owner;
+  private long recentTick = -20;
+  private int recentRequests;
+
+  boolean allowRecent(long tick) {
+    if (tick - recentTick >= 20) { recentTick = tick; recentRequests = 0; }
+    return ++recentRequests <= 12;
+  }
 
   public MagnetMenu(int id, Inventory inv, boolean offhand, UUID identity) {
     super(Net.MENU.get(), id);

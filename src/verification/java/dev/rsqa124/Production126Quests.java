@@ -40,6 +40,8 @@ final class Production126Quests {
   private static INetwork rs;
   private static net.minecraft.world.level.block.entity.BarrelBlockEntity remoteBarrel, localBarrel;
   private static List<ItemTask> tasks;
+  private static List<ItemTask> extras = List.of();
+  private static final boolean QA127 = Boolean.getBoolean("chestmagnet.qa127");
   private static int phase, elapsed, age;
 
   static void tick(ServerPlayer p) throws ReflectiveOperationException {
@@ -96,6 +98,11 @@ final class Production126Quests {
       NearbyProductionChecks.questFramePhase = "";
       QuestTiming.report();
       NearbyProductionChecks.LOG.info("QA126_FTB_PASS collection OFF still detects; quest OFF and removal stop; offhand resumes; no duplication");
+      if (QA127) {
+        var extraProgress = extras.stream().map(team::getProgress).toList();
+        require(extraProgress.equals(List.of(0L, 1L, 0L, 3L, 1L, 2L, 1L, 4L)), "scroll/filter/late/nested: " + extraProgress);
+        NearbyProductionChecks.LOG.info("QA127_QUEST_PASS wrong/correct/strict scroll, OR, tag, >128 variants, Inception");
+      }
       config.putInt("Mode", 3);
       Class.forName("dev.chestmagnet.Engine").getMethod("toggle", ServerPlayer.class, ItemStack.class)
           .invoke(null, p, magnet);
@@ -133,6 +140,54 @@ final class Production126Quests {
       require(beyond.getUnifiedStorage().getStackByKey(key).amount() == 11
           && second.getUnifiedStorage().getStackByKey(key).amount() == 7, "same magnet follows native primary switch");
       NearbyProductionChecks.LOG.info("QA126_BD_PASS Nether barrel -> primary network: 11; switched primary: 7");
+      if (QA127) {
+        p.setItemInHand(InteractionHand.MAIN_HAND, magnet);
+        var at = p.blockPosition().north();
+        p.serverLevel().setBlockAndUpdate(at, Blocks.BARREL.defaultBlockState());
+        var barrel = (net.minecraft.world.level.block.entity.BarrelBlockEntity) p.serverLevel().getBlockEntity(at);
+        var book = new ItemStack(Items.ENCHANTED_BOOK);
+        net.minecraft.world.item.EnchantedBookItem.addEnchantment(book,
+            new net.minecraft.world.item.enchantment.EnchantmentInstance(
+                net.minecraft.world.item.enchantment.Enchantments.MENDING, 1));
+        barrel.setItem(0, book);
+        for (int i = 1; i <= 10; i++) barrel.setItem(i, new ItemStack(List.of(Items.DIRT, Items.STONE,
+            Items.IRON_INGOT, Items.DIAMOND_HELMET, Items.BREAD, Items.BONE, Items.STRING,
+            Items.APPLE, Items.POTATO, Items.BRICK).get(i - 1)));
+        config.putInt("Mode", 0);
+        next();
+      } else NearbyProductionChecks.done = true;
+    } else if (phase == 11 && elapsed == 20) {
+      var at = p.blockPosition().south();
+      p.serverLevel().setBlockAndUpdate(at, Blocks.BARREL.defaultBlockState());
+      var barrel = (net.minecraft.world.level.block.entity.BarrelBlockEntity) p.serverLevel().getBlockEntity(at);
+      barrel.setItem(0, new ItemStack(Items.ECHO_SHARD, 4));
+      config.putInt("Mode", 2);
+    } else if (phase == 11 && elapsed >= 120) {
+      var id = config.getUUID("Id");
+      net.minecraftforge.network.NetworkHooks.openScreen(p, new net.minecraft.world.SimpleMenuProvider(
+          (n, inv, owner) -> new dev.chestmagnet.MagnetMenu(n, inv, false, id),
+          net.minecraft.network.chat.Component.literal("宝箱磁铁")),
+          buf -> { buf.writeBoolean(false); buf.writeUUID(id); });
+      dev.chestmagnet.Net.sync(p, magnet, "QA127");
+      var records = p.getPersistentData().getList("ChestMagnetRecentItems", 10);
+      var saved = new CompoundTag();
+      p.saveWithoutId(saved);
+      var loaded = net.minecraftforge.common.util.FakePlayerFactory.get(p.serverLevel(),
+          new com.mojang.authlib.GameProfile(java.util.UUID.randomUUID(), "Magnet127Reload"));
+      loaded.load(saved);
+      require(loaded.getPersistentData().getList("ChestMagnetRecentItems", 10).equals(records),
+          "player NBT reload preserves recent records");
+      require(records.stream().anyMatch(t -> {
+        var row = (CompoundTag)t;
+        var display = row.getCompound("Display");
+        return display.getString("Item").equals("minecraft:echo_shard") && display.getInt("Mode") == 2
+            && row.getLong("Count") == 4;
+      }) && team.getProgress(tasks.get(4)) == 0, "voided stack logged as processed but did not advance quest");
+      require(records.size() >= 12 && records.stream().anyMatch(t -> ((CompoundTag)t)
+          .getCompound("Display").getString("Item").equals("minecraft:enchanted_book")), "actual nearby receipt logged");
+      NearbyProductionChecks.LOG.info("QA127_RECENT_PASS partial-independent actual receipts, void result separated from quests, player NBT round-trip");
+      next();
+    } else if (phase == 12 && Production127Ui.finished) {
       NearbyProductionChecks.done = true;
     }
   }
@@ -180,9 +235,11 @@ final class Production126Quests {
     tasks = List.of(task(chapter, 126010, Items.EMERALD, false), task(chapter, 126020, Items.DIAMOND, false),
         task(chapter, 126030, Items.GOLD_INGOT, false), task(chapter, 126040, Items.IRON_INGOT, true),
         task(chapter, 126050, Items.ECHO_SHARD, false));
+    if (QA127) seedExtras(p, chapter);
     file.refreshIDMap();
     file.clearCachedData();
     for (var task : tasks) TeamData.get(p).resetProgress(task);
+    for (var task : extras) TeamData.get(p).resetProgress(task);
     verifyVoidedItem(p);
     magnet = item("chestmagnet:chest_magnet");
     config = magnet.getOrCreateTagElement("ChestMagnet");
@@ -196,17 +253,82 @@ final class Production126Quests {
   }
 
   private static ItemTask task(Chapter chapter, long id, Item item, boolean consume) {
+    return task(chapter, id, new ItemStack(item), consume, false);
+  }
+
+  private static ItemTask task(Chapter chapter, long id, ItemStack sample, boolean consume, boolean exact) {
     var quest = new Quest(id, chapter);
     chapter.addQuest(quest);
     var task = new ItemTask(id + 1, quest);
     var tag = new CompoundTag();
-    dev.ftb.mods.ftbquests.util.NBTUtils.write(tag, "item", new ItemStack(item));
+    dev.ftb.mods.ftbquests.util.NBTUtils.write(tag, "item", sample);
     tag.putLong("count", 64);
     tag.putBoolean("consume_items", consume);
+    if (exact) tag.putBoolean("match_nbt", true);
     task.readData(tag);
-    require(task.getItemStack().is(item) && task.consumesResources() == consume, "native FTB task deserialization");
+    require(task.getItemStack().is(sample.getItem()) && task.consumesResources() == consume, "native FTB task deserialization");
     quest.addTask(task);
     return task;
+  }
+
+  private static void seedExtras(ServerPlayer p, Chapter chapter) {
+    var wrong = scroll("qa_wrong", 3);
+    var actual = scroll("qa_schematic", 7);
+    var expected = scroll("qa_schematic", 2);
+    var tag = item("itemfilters:tag");
+    tag.getOrCreateTag().putString("value", "minecraft:logs");
+    var or = item("itemfilters:or");
+    var children = new net.minecraft.nbt.ListTag();
+    children.add(new ItemStack(Items.GLOWSTONE_DUST).save(new CompoundTag()));
+    children.add(new ItemStack(Items.GLOWSTONE_DUST).save(new CompoundTag()));
+    children.add(new ItemStack(Items.NETHER_STAR).save(new CompoundTag()));
+    or.getOrCreateTag().put("items", children);
+    var late = new ItemStack(Items.FLINT);
+    late.getOrCreateTag().putInt("qa", 149);
+    var lateRs = new ItemStack(Items.SHEARS);
+    lateRs.getOrCreateTag().putInt("qa", 149);
+    extras = List.of(task(chapter, 127010, wrong, false, false), task(chapter, 127020, expected, false, false),
+        task(chapter, 127030, expected, false, true), task(chapter, 127040, tag, false, false),
+        task(chapter, 127050, or, false, false), task(chapter, 127060, late, false, true),
+        task(chapter, 127070, lateRs, false, true), task(chapter, 127080, Items.PRISMARINE_SHARD, false));
+    rs.insertItem(actual, 1, Action.PERFORM);
+    rs.insertItem(new ItemStack(Items.OAK_LOG, 3), 3, Action.PERFORM);
+    beyond.getUnifiedStorage().insert(new ItemStackKey(new ItemStack(Items.GLOWSTONE_DUST)), 1, false);
+    for (int i = 0; i < 150; i++) {
+      var variant = new ItemStack(Items.FLINT);
+      variant.getOrCreateTag().putInt("qa", i);
+      beyond.getUnifiedStorage().insert(new ItemStackKey(variant), 2, false);
+      var shears = new ItemStack(Items.SHEARS);
+      shears.getOrCreateTag().putInt("qa", i);
+      require(rs.insertItem(shears, 1, Action.PERFORM).isEmpty(), "RS variant inserted");
+    }
+    var cap = net.p3pp3rf1y.sophisticatedbackpacks.api.CapabilityBackpackWrapper.getCapabilityInstance();
+    var outer = p.getInventory().getItem(19).getCapability(cap).orElseThrow(IllegalStateException::new);
+    outer.getUpgradeHandler().setStackInSlot(0, item("sophisticatedbackpacks:inception_upgrade"));
+    var inner = item("sophisticatedbackpacks:backpack");
+    var storage = inner.getCapability(cap).orElseThrow(IllegalStateException::new);
+    storage.getInventoryForInputOutput().insertItem(new ItemStack(Items.GLOWSTONE_DUST), false);
+    bagB.setStackInSlot(8, inner);
+    var onlyNested = item("sophisticatedbackpacks:backpack");
+    onlyNested.getCapability(cap).orElseThrow(IllegalStateException::new).getInventoryForInputOutput()
+        .insertItem(new ItemStack(Items.PRISMARINE_SHARD, 4), false);
+    bagB.setStackInSlot(9, onlyNested);
+    // 同一个子包也挂在物品栏，不能按两份计算。
+    p.getInventory().setItem(22, inner.copy());
+  }
+
+  private static ItemStack scroll(String key, int glyph) {
+    var stack = item("tetra:scroll_rolled");
+    var row = new CompoundTag();
+    row.putString("key", key);
+    row.putIntArray("glyphs", new int[]{glyph});
+    var effects = new net.minecraft.nbt.ListTag();
+    effects.add(net.minecraft.nbt.StringTag.valueOf("tetra:" + key));
+    row.put("effects", effects);
+    var data = new net.minecraft.nbt.ListTag();
+    data.add(row);
+    stack.getOrCreateTagElement("BlockEntityTag").put("data", data);
+    return stack;
   }
 
   private static void changeStock(int bag, int rsCount, int bd) {

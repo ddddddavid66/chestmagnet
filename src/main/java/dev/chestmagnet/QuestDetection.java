@@ -10,7 +10,8 @@ import net.minecraftforge.fml.ModList;
 import org.slf4j.LoggerFactory;
 
 /** 在收取之后才借用剩余预算，状态不保存库存引用。 */
-final class QuestDetection {
+@net.minecraftforge.fml.common.Mod.EventBusSubscriber(modid = ChestMagnet.ID)
+public final class QuestDetection {
   private static final Map<UUID, Scan> SCANS = new HashMap<>();
   private static final long SLICE_NANOS = 500_000L;
   private static int playerCursor;
@@ -21,6 +22,32 @@ final class QuestDetection {
     int task, destination;
     long next, lastStart;
     boolean cycling;
+    Object current, team, sample;
+    QuestMatch match;
+    QuestStock.Reader reader;
+
+    void closeReader() {
+      var old = reader;
+      reader = null;
+      if (old != null) old.close();
+    }
+
+    void release() {
+      closeReader();
+      current = team = sample = null;
+      match = null;
+    }
+
+    void advance() {
+      release();
+      task++;
+      destination = 0;
+    }
+
+    void nextDestination() {
+      closeReader();
+      if (++destination >= 3) advance();
+    }
   }
 
   private static boolean installed() {
@@ -42,6 +69,20 @@ final class QuestDetection {
     return stack.is(ChestMagnet.MAGNET.get()) && Data.questDetection(Data.tag(stack));
   }
 
+  static boolean hasPending(List<ServerPlayer> players, int tick) {
+    if (!installed()) return false;
+    for (var p : players) {
+      var scan = SCANS.get(p.getUUID());
+      if (scan != null ? scan.next <= tick : !carried(p).isEmpty()) return true;
+    }
+    return false;
+  }
+
+  @net.minecraftforge.eventbus.api.SubscribeEvent
+  public static void tagsReload(net.minecraftforge.event.TagsUpdatedEvent event) {
+    if (event.getUpdateCause() == net.minecraftforge.event.TagsUpdatedEvent.UpdateCause.SERVER_DATA_LOAD) clear();
+  }
+
   static void wake(ServerPlayer player) {
     if (!installed()) return;
     var scan = SCANS.get(player.getUUID());
@@ -50,10 +91,12 @@ final class QuestDetection {
   }
 
   static void remove(UUID player) {
-    SCANS.remove(player);
+    var removed = SCANS.remove(player);
+    if (removed != null) removed.release();
   }
 
   static void clear() {
+    SCANS.values().forEach(Scan::release);
     SCANS.clear();
     playerCursor = 0;
   }
@@ -72,6 +115,7 @@ final class QuestDetection {
       var scan = SCANS.computeIfAbsent(player.getUUID(), ignored -> new Scan());
       var id = Data.id(magnet);
       if (!id.equals(scan.magnet)) {
+        scan.release();
         scan.magnet = id;
         scan.next = 0;
         scan.task = scan.destination = 0;
@@ -88,8 +132,9 @@ final class QuestDetection {
         scan.cycling = QuestCompat.step(player, scan, deadline);
         scan.next = scan.cycling ? now + 1 : now + 40;
       } catch (LinkageError | RuntimeException error) {
-        scan.cycling = false;
-        scan.next = now + 1200;
+        scan.advance();
+        scan.cycling = true;
+        scan.next = now + 40;
         LoggerFactory.getLogger(ChestMagnet.ID).warn("FTB 检测失败，不影响磁铁收取", error);
       }
     }

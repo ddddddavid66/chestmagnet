@@ -37,15 +37,32 @@ final class BeyondCompat {
       }
 
       @Override
-      public long count(ItemStack key, Predicate<ItemStack> matches, long limit, long deadline) {
-        long amount = 0;
-        int variants = 0;
-        for (var value : storage.getFuzzyMatches(new ItemStackKey(key))) {
-          if (amount >= limit || ++variants > 128 || (variants > 4 && System.nanoTime() >= deadline)) break;
-          if (value.key() instanceof ItemStackKey item && value.amount() > 0 && matches.test(item.copyStack()))
-            amount += Math.min(limit - amount, value.amount());
-        }
-        return amount;
+      public Object stockIdentity() { return storage; }
+
+      @Override
+      public QuestStock.Indexed stock(java.util.Set<net.minecraft.world.item.Item> candidates) {
+        var revision = new java.util.concurrent.atomic.AtomicLong();
+        var subscription = storage.subscribeAny(revision, revision::incrementAndGet);
+        return new QuestStock.Indexed(new QuestStock.View() {
+          public Object identity() { return storage; }
+          public Object revision() { return revision.get(); }
+          public java.util.List<? extends QuestStock.Row> rows(net.minecraft.world.item.Item item) {
+            // 只查询候选物品 ID，不枚举其他物品，也不把 long 数量压成客户端堆叠数量。
+            var matches = storage.getFuzzyMatches(new ItemStackKey(new ItemStack(item)));
+            return new java.util.AbstractList<QuestStock.Row>() {
+              public int size() { return matches.size(); }
+              public QuestStock.Row get(int i) {
+                var entry = matches.get(i);
+                return new QuestStock.Row() {
+                  public ItemStack stack() {
+                    return entry.key() instanceof ItemStackKey k ? k.getReadOnlyStack() : ItemStack.EMPTY;
+                  }
+                  public long count() { return entry.amount(); }
+                };
+              }
+            };
+          }
+        }, candidates, subscription);
       }
 
       @Override

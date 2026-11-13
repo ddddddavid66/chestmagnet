@@ -10,6 +10,10 @@ import top.theillusivec4.curios.api.CuriosApi;
 public final class CuriosCompat {
   private CuriosCompat() {}
 
+  static boolean isAccessory(ServerPlayer player, ItemStack stack) {
+    return !CuriosApi.getItemStackSlots(stack, player.level()).isEmpty();
+  }
+
   static List<ItemStack> terminals(ServerPlayer player) {
     List<ItemStack> stacks = new ArrayList<>();
     CuriosApi.getCuriosInventory(player).ifPresent(inventory ->

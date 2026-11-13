@@ -19,7 +19,7 @@ import net.minecraftforge.registries.*;
 public final class Net {
   private static final SimpleChannel CHANNEL =
       NetworkRegistry.newSimpleChannel(
-          new ResourceLocation(ChestMagnet.ID, "main"), () -> "6", "6"::equals, "6"::equals);
+          new ResourceLocation(ChestMagnet.ID, "main"), () -> "7", "7"::equals, "7"::equals);
   static final DeferredRegister<MenuType<?>> MENUS =
       DeferredRegister.create(ForgeRegistries.MENU_TYPES, ChestMagnet.ID);
   public static final RegistryObject<MenuType<MagnetMenu>> MENU =
@@ -31,11 +31,21 @@ public final class Net {
 
   public record Request(int action, int value, UUID identity) {}
 
+  public record RecentPage(UUID identity, int menuId, int request, CompoundTag data) {}
+
   public record Snapshot(CompoundTag data, String status, int maxRadius) {}
   public record PreviewRequest(UUID nonce, int revision, int centerX, int centerZ, int height) {}
 
   public static void init() {
     MENUS.register(FMLJavaModLoadingContext.get().getModEventBus());
+    CHANNEL.registerMessage(5, RecentPage.class,
+        (m, b) -> { b.writeUUID(m.identity()); b.writeVarInt(m.menuId()); b.writeInt(m.request()); b.writeNbt(m.data()); },
+        b -> new RecentPage(b.readUUID(), b.readVarInt(), b.readInt(), b.readNbt()),
+        (m, c) -> {
+          var ctx = c.get();
+          ctx.enqueueWork(() -> MagnetScreen.receiveRecent(m));
+          ctx.setPacketHandled(true);
+        }, Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     CHANNEL.registerMessage(4, PreviewRequest.class,
         (m, b) -> { b.writeUUID(m.nonce()); b.writeInt(m.revision()); b.writeInt(m.centerX());
           b.writeInt(m.centerZ()); b.writeInt(m.height()); },
@@ -224,6 +234,14 @@ public final class Net {
     if (!(p.containerMenu instanceof MagnetMenu menu)
         || !menu.stillValid(p)
         || !menu.identity.equals(q.identity)) return;
+    if (q.action == 19) {
+      if (!menu.allowRecent(p.server.getTickCount())) return;
+      int category = q.value & 7, page = (q.value >>> 3) & 15;
+      if (category >= RecentItems.CATEGORIES.length) return;
+      CHANNEL.send(PacketDistributor.PLAYER.with(() -> p), new RecentPage(menu.identity, menu.containerId, q.value,
+          RecentItems.page(p.getPersistentData(), category, page)));
+      return;
+    }
     var s = menu.stack();
     var t = Data.tag(s);
     switch (q.action) {

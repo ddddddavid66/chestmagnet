@@ -9,11 +9,11 @@ public final class Destinations {
   public interface Target {
     ItemStack insert(ItemStack stack, boolean simulate);
 
-    /** 任务检测只读；返回足够证明的当前数量，不从库存提取。 */
-    default long count(ItemStack key, java.util.function.Predicate<ItemStack> matches,
-        long limit, long deadline) {
-      return 0;
+    default QuestStock.Indexed stock(java.util.Set<net.minecraft.world.item.Item> candidates) {
+      return null;
     }
+
+    default Object stockIdentity() { return null; }
 
     default boolean unavailable() {
       return false;
@@ -45,6 +45,10 @@ public final class Destinations {
         return value().loops(source, player);
       }
     };
+  }
+
+  static Target tracked(ServerPlayer player, int mode) {
+    return deferred(() -> RecentItems.track(player, mode, get(player, mode)));
   }
 
   public static Target get(ServerPlayer p, int mode) {

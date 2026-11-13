@@ -10,6 +10,8 @@ parser.add_argument('--pack', type=Path, required=True, help='包含 versions/li
 parser.add_argument('--magnet', type=Path, help='省略表示无磁铁；提供正式 JAR 路径')
 parser.add_argument('--mode', choices=['off', 'idle', 'active'], default='off')
 parser.add_argument('--suite', choices=['rs124', 'bench', 'compat', 'rs125', 'ftb126', 'chapel126'], default='rs124')
+parser.add_argument('--quest127', action='store_true')
+parser.add_argument('--gui-scale', type=int, default=2)
 parser.add_argument('--ftb-legacy', action='store_true')
 parser.add_argument('--ftb-rsi', action='store_true')
 parser.add_argument('--chapel-mods', type=Path, help='Read-only directory containing exactly one Goety and Revelation JAR')
@@ -53,6 +55,10 @@ if args.suite == 'ftb126':
                  'ftb-quests-forge-' + ('2001.4.13' if args.ftb_legacy else '2001.4.22') + '.jar',
                  'ftb-library-forge-' + ('2001.2.9' if args.ftb_legacy else '2001.2.12') + '.jar'):
         shutil.copy2(root/'libs'/name, case/'mods'/name)
+    if args.quest127:
+        for name in ('tetra-6.9.0.jar', 'mutil-6.2.0.jar'):
+            shutil.copy2(root/'libs'/name, case/'mods'/name)
+        patterns += ['*item-filters-forge-2001.1.0-build.59.jar']
     if args.ftb_rsi:
         patterns += ['rs_integration-1.5.1.jar', '*jei-1.20.1-forge*.jar']
 if args.suite == 'chapel126':
@@ -72,7 +78,7 @@ if args.magnet: shutil.copy2(args.magnet.resolve(), case/'mods'/args.magnet.name
 shutil.copy2(root/'run/qa124-artifacts/rsqa124.jar', case/'mods/rsqa124.jar')
 if args.suite == 'rs124':
     shutil.copytree(version/'config/rs_integration', case/'config/rs_integration')
-options = 'lang:zh_cn\nguiScale:2\npauseOnLostFocus:false\n'
+options = f'lang:zh_cn\nguiScale:{args.gui_scale}\npauseOnLostFocus:false\n'
 if args.suite != 'rs124':
     options += 'renderDistance:5\nsimulationDistance:5\nenableVsync:false\nmaxFps:120\n'
 (case/'options.txt').write_text(options,encoding='utf-8')
@@ -92,6 +98,8 @@ def expand(text):
     for key,value in subs.items(): text=text.replace('${'+key+'}',value)
     return text
 jvm=['-Xmx3G']
+if args.quest127:
+    jvm += ['-Dchestmagnet.qa127=true']
 if args.suite == 'rs124':
     jvm += ['-Dchestmagnet.rsClient=true','-Dchestmagnet.qaMode='+args.mode,'-Dchestmagnet.qaDisk='+args.disk]
 else:
@@ -115,9 +123,11 @@ with (case/'console.log').open('w',encoding='utf-8') as log:
     print('exit',process.returncode,flush=True)
 text=(case/'console.log').read_text(encoding='utf-8',errors='replace')
 if args.suite != 'rs124':
-    print('\n'.join(line for line in text.splitlines() if 'QA125_' in line or 'QA126_' in line))
+    print('\n'.join(line for line in text.splitlines() if 'QA125_' in line or 'QA126_' in line or 'QA127_' in line))
     marker = {'bench':'QA125_BENCH_PASS', 'compat':'QA125_COMPAT_PASS', 'rs125':'QA125_RS_PASS', 'ftb126':'QA126_FTB_PASS', 'chapel126':'QA126_CHAPEL_PASS'}[args.suite]
     extra = args.suite != 'ftb126' or 'QA126_BD_PASS' in text
+    if args.quest127:
+        extra = extra and 'QA127_QUEST_PASS' in text and 'QA127_RECENT_UI_PASS' in text
     sys.exit(0 if marker in text and extra and process.returncode == 0 else 1)
 print('\n'.join(line for line in text.splitlines() if 'RS_CLIENT_FINISHED' in line or 'RS_CLIENT_SETUP_FAILED' in line))
 

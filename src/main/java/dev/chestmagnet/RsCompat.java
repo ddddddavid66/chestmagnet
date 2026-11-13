@@ -159,17 +159,43 @@ public final class RsCompat {
         }
 
         @Override
-        public long count(ItemStack key, java.util.function.Predicate<ItemStack> matches,
-            long limit, long deadline) {
-          if (!n.getSecurityManager().hasPermission(Permission.EXTRACT, p)) return 0;
-          long amount = 0;
-          int variants = 0;
-          for (var entry : n.getItemStorageCache().getList().getStacks(key)) {
-            if (amount >= limit || ++variants > 128 || (variants > 4 && System.nanoTime() >= deadline)) break;
-            var stack = entry.getStack();
-            if (matches.test(stack)) amount += Math.min(limit - amount, stack.getCount());
-          }
-          return amount;
+        public Object stockIdentity() { return n.getItemStorageCache(); }
+
+        @Override
+        public QuestStock.Indexed stock(Set<net.minecraft.world.item.Item> candidates) {
+          var cache = n.getItemStorageCache();
+          var revision = new java.util.concurrent.atomic.AtomicLong();
+          var listener = new com.refinedmods.refinedstorage.api.storage.cache.IStorageCacheListener<ItemStack>() {
+            public void onAttached() { revision.incrementAndGet(); }
+            public void onInvalidated() { revision.incrementAndGet(); }
+            public void onChanged(com.refinedmods.refinedstorage.api.util.StackListResult<ItemStack> change) {
+              revision.incrementAndGet();
+            }
+            public void onChangedBulk(List<com.refinedmods.refinedstorage.api.util.StackListResult<ItemStack>> changes) {
+              revision.incrementAndGet();
+            }
+          };
+          cache.addListener(listener);
+          return new QuestStock.Indexed(new QuestStock.View() {
+            public Object identity() { return cache; }
+            public Object revision() { return revision.get(); }
+            public List<? extends QuestStock.Row> rows(net.minecraft.world.item.Item item) {
+              // RS 1.12.4 的单物品桶是可按下标访问的视图；监听到更新后整次查询作废。
+              var rows = cache.getList().getStacks(new ItemStack(item));
+              if (!(rows instanceof List<?> list)) throw new IllegalStateException("不支持的 RS 物品索引");
+              return new AbstractList<QuestStock.Row>() {
+                public int size() { return list.size(); }
+                public QuestStock.Row get(int i) {
+                  @SuppressWarnings("unchecked")
+                  var entry = (com.refinedmods.refinedstorage.api.util.StackListEntry<ItemStack>) list.get(i);
+                  return new QuestStock.Row() {
+                    public ItemStack stack() { return entry.getStack(); }
+                    public long count() { return stack().getCount(); }
+                  };
+                }
+              };
+            }
+          }, candidates, () -> cache.removeListener(listener));
         }
 
         public boolean loops(Sources.Ref source, ServerPlayer player) {
