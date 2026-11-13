@@ -59,9 +59,7 @@ final class QuestCompat {
     var view = mode == 1 ? RsCompat.questTarget(player) : Destinations.get(player, mode);
     long amount = view.count(key, item::test, limit, deadline);
     if (amount > known) {
-      var magnet = Engine.active(player);
-      if (!magnet.isEmpty() && Data.questDetection(Data.tag(magnet)))
-        team.setProgress(item, amount);
+      if (!QuestDetection.carried(player).isEmpty()) team.setProgress(item, amount);
     }
   }
 }

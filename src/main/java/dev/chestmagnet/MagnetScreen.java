@@ -111,15 +111,15 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
     contentBottom = imageHeight - 42;
     fixed(imageWidth - 68, imageHeight - 26, 56, "完成", this::onClose);
     if (tab == 0) {
-      row(0, enabled() ? "磁铁：已开启" : "磁铁：已关闭", () -> send(2, 0));
+      row(0, enabled() ? "磁铁吸附：已开启" : "磁铁吸附：已关闭", () -> send(2, 0));
       row(24, "吸收模式：" + Data.modeName(data.getInt("Mode")), () -> send(1, data.getInt("Mode") + 1));
       row(48, "开启自动吸收结构的宝箱：" + (data.getBoolean("AutoStructure") ? "是" : "否"), () -> send(15, 0));
       row(72, "让任务可以检测吸收的物品：" + (Data.questDetection(data) ? "是" : "否"), () -> send(18, 0));
       var task = data.getCompound("StructureTask");
-      var cont = row(12, 166, (imageWidth - 28) / 2, "继续任务", () -> send(16, 0));
+      var cont = row(12, 178, (imageWidth - 28) / 2, "继续任务", () -> send(16, 0));
       if (cont != null) cont.active = task.getBoolean("CanContinue");
       var stop =
-          row(16 + (imageWidth - 28) / 2, 166, (imageWidth - 28) / 2, "停止任务", () -> send(17, 0));
+          row(16 + (imageWidth - 28) / 2, 178, (imageWidth - 28) / 2, "停止任务", () -> send(17, 0));
       if (stop != null) stop.active = task.getBoolean("Running") || task.getBoolean("Paused");
     } else if (tab == 1) {
       for (int i = 0; i < 3; i++) {
@@ -249,13 +249,14 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
     if (tab == 0) {
       var t = data.getCompound("StructureTask");
       text(g, "与具有相同功能的模组同时使用时可能冲突", 98, 0xffe8bd68);
-      text(g, "最新指南针目标附近32格内自动收取", 111, 0xffc9bda6);
-      text(g, "范围包含重叠容器，遵循背包销毁规则", 123, 0xffc9bda6);
-      text(g, t.getString("Status").isBlank() ? "结构任务：暂无" : t.getString("Status"), 136, 0xffe8bd68);
+      text(g, "携带即检测，关闭吸附不影响", 111, 0xffc9bda6);
+      text(g, "最新指南针目标附近32格内自动收取", 123, 0xffc9bda6);
+      text(g, "范围包含重叠容器，遵循背包销毁规则", 135, 0xffc9bda6);
+      text(g, t.getString("Status").isBlank() ? "结构任务：暂无" : t.getString("Status"), 148, 0xffe8bd68);
       text(
           g,
           "区块 " + t.getInt("Done") + "/" + t.getInt("Total") + " · 已处理 " + t.getInt("Processed"),
-          149,
+          161,
           0xfff3ead4);
     } else if (tab == 1) {
       text(
@@ -300,7 +301,7 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
         imageHeight - 39,
         0xffe8bd68,
         false);
-    if (contentBottom - contentTop < (tab == 0 ? 190 : 156))
+    if (contentBottom - contentTop < (tab == 0 ? 202 : 156))
       g.drawString(font, "滚轮查看更多", 12, imageHeight - 20, 0xffc9bda6, false);
   }
 
@@ -310,7 +311,7 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
       scroll =
           Math.max(
               0,
-              Math.min(Math.max(0, (tab == 0 ? 190 : 156) - (contentBottom - contentTop)), scroll - (int) delta * 24));
+              Math.min(Math.max(0, (tab == 0 ? 202 : 156) - (contentBottom - contentTop)), scroll - (int) delta * 24));
       init();
       return true;
     }

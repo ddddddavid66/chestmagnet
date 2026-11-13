@@ -38,11 +38,11 @@ final class Production126Quests {
   private static IItemHandlerModifiable bagA, bagB;
   private static DimensionsNet beyond, second;
   private static INetwork rs;
-  private static net.minecraft.world.level.block.entity.BarrelBlockEntity remoteBarrel;
+  private static net.minecraft.world.level.block.entity.BarrelBlockEntity remoteBarrel, localBarrel;
   private static List<ItemTask> tasks;
   private static int phase, elapsed, age;
 
-  static void tick(ServerPlayer p) {
+  static void tick(ServerPlayer p) throws ReflectiveOperationException {
     if (++age > 1200) throw new IllegalStateException("FTB QA timed out at phase " + phase);
     if (phase == 0) { setup(p); next(); return; }
     rs.getEnergyStorage().receiveEnergy(Integer.MAX_VALUE, false);
@@ -55,11 +55,13 @@ final class Production126Quests {
       next();
     } else if (phase == 2) {
       expect(team, 0, 0, 0);
-      config.putBoolean("Enabled", true);
+      config.putBoolean("QuestDetection", true);
       NearbyProductionChecks.questFramePhase = "on";
       next();
     } else if (phase == 3) {
       expect(team, 8, 9, 10);
+      require(!config.getBoolean("Enabled") && localBarrel.getItem(0).getCount() == 6,
+          "FTB progresses with collection disabled without touching a nearby source");
       NearbyProductionChecks.questFramePhase = "";
       config.putBoolean("QuestDetection", false);
       changeStock(12, 13, 14);
@@ -93,8 +95,11 @@ final class Production126Quests {
       require(p.inventoryMenu == p.containerMenu, "task detection never opens GUI");
       NearbyProductionChecks.questFramePhase = "";
       QuestTiming.report();
-      NearbyProductionChecks.LOG.info("QA126_FTB_PASS preexisting and manual stock, disabled gates, offhand, no duplication");
+      NearbyProductionChecks.LOG.info("QA126_FTB_PASS collection OFF still detects; quest OFF and removal stop; offhand resumes; no duplication");
       config.putInt("Mode", 3);
+      Class.forName("dev.chestmagnet.Engine").getMethod("toggle", ServerPlayer.class, ItemStack.class)
+          .invoke(null, p, magnet);
+      require(config.getBoolean("Enabled"), "collection toggle is independent");
       var remote = p.getServer().getLevel(net.minecraft.world.level.Level.NETHER);
       var stand = new BlockPos(8, 120, 8);
       remote.setBlockAndUpdate(stand.below(), Blocks.STONE.defaultBlockState());
@@ -182,7 +187,12 @@ final class Production126Quests {
     magnet = item("chestmagnet:chest_magnet");
     config = magnet.getOrCreateTagElement("ChestMagnet");
     config.putBoolean("Enabled", false);
+    config.putBoolean("QuestDetection", false);
     p.getInventory().setItem(35, magnet);
+    p.serverLevel().setBlockAndUpdate(STAND.east(), Blocks.BARREL.defaultBlockState());
+    localBarrel = (net.minecraft.world.level.block.entity.BarrelBlockEntity)
+        p.serverLevel().getBlockEntity(STAND.east());
+    localBarrel.setItem(0, new ItemStack(Items.COAL, 6));
   }
 
   private static ItemTask task(Chapter chapter, long id, Item item, boolean consume) {

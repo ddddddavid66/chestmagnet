@@ -50,7 +50,6 @@ public class Engine {
 
   public static void toggle(ServerPlayer p, ItemStack s) {
     Data.tag(s).putBoolean("Enabled", !Data.enabled(s));
-    QuestDetection.remove(p.getUUID());
     if (!Data.enabled(s)) StructureJobs.stopForMagnet(p, s, "玩家关闭磁铁");
     else STATES.remove(p.getUUID());
     p.getInventory().setChanged();

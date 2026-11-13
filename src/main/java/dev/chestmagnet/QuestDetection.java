@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.fml.ModList;
 import org.slf4j.LoggerFactory;
 
@@ -25,6 +26,20 @@ final class QuestDetection {
   private static boolean installed() {
     if (installed == null) installed = ModList.get().isLoaded("ftbquests");
     return installed;
+  }
+
+  /** 任务检测独立于吸附总开关，按物品栏顺序选首枚开启任务检测的磁铁。 */
+  static ItemStack carried(ServerPlayer player) {
+    for (int slot = 0; slot < 36; slot++) {
+      var stack = player.getInventory().getItem(slot);
+      if (detects(stack)) return stack;
+    }
+    var offhand = player.getOffhandItem();
+    return detects(offhand) ? offhand : ItemStack.EMPTY;
+  }
+
+  private static boolean detects(ItemStack stack) {
+    return stack.is(ChestMagnet.MAGNET.get()) && Data.questDetection(Data.tag(stack));
   }
 
   static void wake(ServerPlayer player) {
@@ -49,8 +64,8 @@ final class QuestDetection {
     for (int i = 0; i < players.size() && System.nanoTime() < deadline; i++) {
       var player = players.get(Math.floorMod(playerCursor++, players.size()));
       if (!player.isAlive() || player.isSpectator()) { remove(player.getUUID()); continue; }
-      var magnet = Engine.active(player);
-      if (magnet.isEmpty() || !Data.questDetection(Data.tag(magnet))) {
+      var magnet = carried(player);
+      if (magnet.isEmpty()) {
         remove(player.getUUID());
         continue;
       }
