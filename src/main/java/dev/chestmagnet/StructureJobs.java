@@ -663,6 +663,7 @@ public final class StructureJobs {
   }
 
   static boolean doubleReady(ServerPlayer p, Job j, Object o) {
+    if (Sources.personalLoot(o)) return true;
     BlockPos other;
     if (o instanceof net.minecraft.world.level.block.entity.BlockEntity be
         && SourceExtras.blockId(p, be.getBlockPos()).equals("tetra:forged_container"))
@@ -830,7 +831,7 @@ public final class StructureJobs {
         var pedestalInventory = pedestal && Data.autoStructure(magnet)
                 && o instanceof net.minecraft.world.level.block.entity.BlockEntity be
             ? j.chapel.inventory(j.level, be) : null;
-        if (pedestal && pedestalInventory == null) { j.sources.remove(); j.slot = 0; continue; }
+        if (pedestal ? pedestalInventory == null : !Sources.eligible(o)) { j.sources.remove(); j.slot = 0; continue; }
         if (!doubleReady(p, j, o)) return;
         if (target.unavailable()) { pauseTarget(p, j, target.reason()); return; }
         if (target.loops(ref, p)) { j.sources.remove(); j.slot = 0; continue; }
@@ -842,6 +843,11 @@ public final class StructureJobs {
           Faults.context(p, magnet, ref, "收尾");
           boolean finished = SourceExtras.finish(p, o, inv, magnet);
           if (LootCapture.pending(magnet)) { j.status = "收尾产物待处理"; return; }
+          if (!finished && Sources.quarkCrate(o) && j.slot > 0) {
+            // Quark 的压缩会在 tick 间把尚未提取的栈移动到已访问槽位。
+            j.slot = 0;
+            break;
+          }
           if (!finished) {
             j.status = "来源仍有余量或开箱产物未接收";
             j.paused = true; releaseForPause(j); return;

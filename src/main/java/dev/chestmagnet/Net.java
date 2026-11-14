@@ -19,7 +19,7 @@ import net.minecraftforge.registries.*;
 public final class Net {
   private static final SimpleChannel CHANNEL =
       NetworkRegistry.newSimpleChannel(
-          new ResourceLocation(ChestMagnet.ID, "main"), () -> "7", "7"::equals, "7"::equals);
+          new ResourceLocation(ChestMagnet.ID, "main"), () -> "8", "8"::equals, "8"::equals);
   static final DeferredRegister<MenuType<?>> MENUS =
       DeferredRegister.create(ForgeRegistries.MENU_TYPES, ChestMagnet.ID);
   public static final RegistryObject<MenuType<MagnetMenu>> MENU =
@@ -236,10 +236,10 @@ public final class Net {
         || !menu.identity.equals(q.identity)) return;
     if (q.action == 19) {
       if (!menu.allowRecent(p.server.getTickCount())) return;
-      int category = q.value & 7, page = (q.value >>> 3) & 15;
+      int category = q.value & 7, page = (q.value >>> 3) & 31;
       if (category >= RecentItems.CATEGORIES.length) return;
       CHANNEL.send(PacketDistributor.PLAYER.with(() -> p), new RecentPage(menu.identity, menu.containerId, q.value,
-          RecentItems.page(p.getPersistentData(), category, page)));
+          RecentItems.page(p, category, page)));
       return;
     }
     var s = menu.stack();

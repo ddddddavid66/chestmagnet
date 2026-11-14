@@ -8,6 +8,7 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.world.*;
 import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.vehicle.*;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.entity.*;
 import net.minecraft.world.level.block.state.properties.ChestType;
@@ -20,6 +21,13 @@ public final class Sources {
       BlockTags.create(new ResourceLocation("forge", "chests"));
   private static final net.minecraft.tags.TagKey<Block> BARRELS =
       BlockTags.create(new ResourceLocation("forge", "barrels"));
+  private static final net.minecraft.tags.TagKey<Block> LOOTR_CHESTS =
+      BlockTags.create(new ResourceLocation("lootr", "chests"));
+  private static final net.minecraft.tags.TagKey<Block> LOOTR_TRAPPED =
+      BlockTags.create(new ResourceLocation("lootr", "trapped_chests"));
+  private static final ResourceLocation QUARK_CRATE = new ResourceLocation("quark", "crate");
+  private static final ResourceLocation QUARK_CHEST_BOAT = new ResourceLocation("quark", "quark_chest_boat");
+
   public record Ref(BlockPos pos, UUID entity) {
     public Object resolve(ServerPlayer p) {
       if (entity != null) {
@@ -67,6 +75,7 @@ public final class Sources {
   }
 
   private static BlockPos otherHalf(ServerPlayer p, BlockPos pos) {
+    if (personalLoot(p.level().getBlockEntity(pos))) return null;
     var s = p.level().getBlockState(pos);
     if (SourceExtras.blockId(p, pos).equals("tetra:forged_container")) {
       var other = SourceExtras.tetraOther(p, pos);
@@ -91,14 +100,39 @@ public final class Sources {
     return o != null && o.asLong() < pos.asLong() ? o : pos;
   }
 
+  // 个人战利品容器不一定用 lootr 命名空间（例如 Quark 变种）。
+  static boolean personalLoot(Object source) {
+    if (ModList.get().isLoaded("lootr")) {
+      try {
+        if (LootrCompat.supports(source)) return true;
+      } catch (LinkageError ignored) {
+        // 已知 Lootr 标记仍按个人库存处理，不能退回普通箱。
+      }
+    }
+    if (source instanceof BlockEntity be) {
+      var state = be.getBlockState();
+      var id = net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(state.getBlock());
+      return id != null && (id.getNamespace().equals("lootr")
+          || id.getNamespace().equals("quark") && id.getPath().startsWith("lootr_")
+          || state.is(LOOTR_CHESTS) || state.is(LOOTR_TRAPPED));
+    }
+    if (!(source instanceof AbstractMinecartContainer e)) return false;
+    var id = net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES.getKey(e.getType());
+    return id != null && id.getNamespace().equals("lootr");
+  }
+
+  static boolean quarkCrate(Object source) {
+    return source instanceof BaseContainerBlockEntity be &&
+        QUARK_CRATE.equals(net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(be.getBlockState().getBlock()));
+  }
+
   public static boolean eligible(Object o) {
     if (o instanceof SourceExtras.Special) return true;
     if (o instanceof Entity e) {
       if (e instanceof net.minecraft.world.entity.decoration.ItemFrame
           || e instanceof MinecartChest || e instanceof MinecartHopper) return true;
-      if (!(e instanceof AbstractMinecartContainer)) return false;
-      var id = net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES.getKey(e.getType());
-      return id != null && id.getNamespace().equals("lootr");
+      return personalLoot(e) || e instanceof ChestBoat
+          && QUARK_CHEST_BOAT.equals(net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES.getKey(e.getType()));
     }
     if (!(o instanceof BlockEntity b)) return false;
     var id =
@@ -107,8 +141,9 @@ public final class Sources {
         || id.getNamespace().startsWith("sophisticated")
         || id.getNamespace().startsWith("refinedstorage")
         || id.getNamespace().equals("beyonddimensions")) return false;
-    if (id.getNamespace().equals("lootr")) return b instanceof Container;
-    return SourceExtras.known(b)
+    if (personalLoot(b)) return true;
+    return quarkCrate(b)
+        || SourceExtras.known(b)
         || b instanceof ChestBlockEntity
         || b instanceof BrewingStandBlockEntity
         || ChurchContainers.known(b)
@@ -141,22 +176,25 @@ public final class Sources {
         || (o instanceof BlockEntity b && SourceExtras.known(b)))
       return SourceExtras.inventory(p, o, magnet);
     if (o instanceof BlockEntity be && ChurchContainers.known(be)) return ChurchContainers.inventory(p, be, magnet);
-    String ns =
-        o instanceof Entity e
-            ? net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES
-                .getKey(e.getType())
-                .getNamespace()
-            : net.minecraftforge.registries.ForgeRegistries.BLOCKS
-                .getKey(((BlockEntity) o).getBlockState().getBlock())
-                .getNamespace();
-    if (ns.equals("lootr")) {
+    if (personalLoot(o)) {
       if (!ModList.get().isLoaded("lootr")) return null;
-      Container c = LootrCompat.inventory(p, o);
-      return c == null ? null : new InvWrapper(c);
+      try {
+        if (!LootrCompat.supports(o)) return null;
+        Container c = LootrCompat.inventory(p, o);
+        return c == null ? null : new InvWrapper(c);
+      } catch (LinkageError ignored) {
+        return null;
+      }
     }
     if (o instanceof BaseContainerBlockEntity b
         && !SourceExtras.option(magnet, "CollectLocked")
         && !b.canOpen(p)) return null;
+    if (quarkCrate(o)) {
+      var crate = (BlockEntity) o;
+      // 原生 Container.removeItem 在 Quark 中只模拟；实际抽取和回填走同一能力。
+      return crate.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ITEM_HANDLER)
+          .map(handler -> markCrateChanges(crate, handler)).orElse(null);
+    }
     if (o instanceof ChestBlockEntity chest) {
       var state = chest.getBlockState();
       if (state.hasProperty(ChestBlock.TYPE)
@@ -180,11 +218,30 @@ public final class Sources {
       return new InvWrapper(c);
     }
     if (o instanceof RandomizableContainerBlockEntity b) b.unpackLootTable(p);
-    if (o instanceof AbstractMinecartContainer c) c.unpackChestVehicleLootTable(p);
+    if (o instanceof ContainerEntity c) c.unpackChestVehicleLootTable(p);
     if (o instanceof Container c) return new InvWrapper(c);
     return o instanceof BlockEntity be
         ? be.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ITEM_HANDLER)
             .orElse(null)
         : null;
+  }
+
+  private static IItemHandler markCrateChanges(BlockEntity crate, IItemHandler handler) {
+    return new IItemHandler() {
+      public int getSlots() { return handler.getSlots(); }
+      public ItemStack getStackInSlot(int slot) { return handler.getStackInSlot(slot); }
+      public int getSlotLimit(int slot) { return handler.getSlotLimit(slot); }
+      public boolean isItemValid(int slot, ItemStack stack) { return handler.isItemValid(slot, stack); }
+      public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
+        var remainder = handler.insertItem(slot, stack, simulate);
+        if (!simulate && remainder.getCount() < stack.getCount()) crate.setChanged();
+        return remainder;
+      }
+      public ItemStack extractItem(int slot, int amount, boolean simulate) {
+        var stack = handler.extractItem(slot, amount, simulate);
+        if (!simulate && !stack.isEmpty()) crate.setChanged();
+        return stack;
+      }
+    };
   }
 }

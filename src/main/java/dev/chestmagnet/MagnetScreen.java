@@ -15,6 +15,9 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
   private boolean confirm, dirty;
   private int category, historyPage, historyRequest = -1, historySequence, historyWait;
   private CompoundTag history;
+  private boolean choosingCategory;
+  private int categoryCursor, categoryOffset;
+  private Button categoryButton;
   private java.util.List<RecentRow> recentRows = java.util.List.of();
 
   private record RecentRow(net.minecraft.world.item.ItemStack icon, String name, String amount,
@@ -113,6 +116,8 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
               navWidth,
               TABS[i],
               () -> {
+                if (tab != 2 && t == 2) category = 0;
+                choosingCategory = false;
                 tab = t;
                 scroll = 0;
                 confirm = false;
@@ -200,11 +205,8 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
           () -> send(10, 0));
     } else if (tab == 2) {
       int half = (imageWidth - 28) / 2;
-      fixed(12, contentTop, half, "分类：" + RecentItems.CATEGORIES[category], () -> {
-        category = (category + 1) % RecentItems.CATEGORIES.length;
-        loadRecent(0);
-        init();
-      });
+      categoryButton = fixed(12, contentTop, half, "分类：" + RecentItems.CATEGORIES[category], this::toggleCategories);
+      if (choosingCategory) setFocused(categoryButton);
       fixed(16 + half, contentTop, half, "刷新", () -> { loadRecent(historyPage); init(); });
       var previous = fixed(12, imageHeight - 26, 22, "<", () -> { loadRecent(historyPage - 1); init(); });
       var next = fixed(38, imageHeight - 26, 22, ">", () -> { loadRecent(historyPage + 1); init(); });
@@ -348,6 +350,11 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
 
   @Override
   public boolean mouseScrolled(double x, double y, double delta) {
+    if (tab == 2 && choosingCategory) {
+      categoryOffset = net.minecraft.util.Mth.clamp(categoryOffset - (int) Math.signum(delta),
+          0, RecentItems.CATEGORIES.length - dropdownRows());
+      return true;
+    }
     if (y >= topPos + contentTop && y < topPos + contentBottom) {
       scroll =
           Math.max(
@@ -363,17 +370,101 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
   public void render(GuiGraphics g, int x, int y, float p) {
     renderBackground(g);
     super.render(g, x, y, p);
-    if (tab == 2) recentTooltip(g, x, y);
+    if (tab == 2) {
+      drawCategoryControl(g, x, y);
+      if (!choosingCategory) recentTooltip(g, x, y);
+    }
     renderTooltip(g, x, y);
   }
 
+  private void toggleCategories() {
+    choosingCategory = !choosingCategory;
+    categoryCursor = category;
+    categoryOffset = Math.max(0, category - dropdownRows() + 1);
+    setFocused(categoryButton);
+  }
+
+  private int dropdownRows() {
+    return Math.min(RecentItems.CATEGORIES.length, Math.max(1, (contentBottom - contentTop - 24) / 17));
+  }
+
+  private void chooseCategory(int next) {
+    category = next;
+    choosingCategory = false;
+    loadRecent(0);
+    init();
+    setFocused(categoryButton);
+  }
+
+  private void drawCategoryControl(GuiGraphics g, int x, int y) {
+    if (categoryButton == null) return;
+    int left = categoryButton.getX(), width = categoryButton.getWidth();
+    int arrowX = left + width - 10, arrowY = categoryButton.getY() + 9;
+    for (int i = 0; i < 3; i++) {
+      int inset = choosingCategory ? 2 - i : i;
+      g.fill(arrowX + inset, arrowY + i, arrowX + 5 - inset, arrowY + i + 1, 0xffe8bd68);
+    }
+    if (!choosingCategory) return;
+    int top = categoryButton.getY() + 22;
+    int count = dropdownRows();
+    g.pose().pushPose();
+    g.pose().translate(0, 0, 400);
+    g.fill(left, top, left + width, top + count * 17 + 2, 0xffb18c4d);
+    for (int i = 0; i < count; i++) {
+      int option = categoryOffset + i, yy = top + 1 + i * 17;
+      boolean focused = option == categoryCursor || x >= left && x < left + width && y >= yy && y < yy + 17;
+      g.fill(left + 1, yy, left + width - 1, yy + 17, focused ? 0xff51432e : 0xff20242a);
+      g.drawString(font, RecentItems.CATEGORIES[option], left + 7, yy + 4,
+          option == category ? 0xffe8bd68 : 0xfff3ead4, false);
+    }
+    g.pose().popPose();
+  }
+
+  @Override
+  public boolean mouseClicked(double x, double y, int button) {
+    if (tab == 2 && choosingCategory && button == 0) {
+      int first = categoryButton.getY() + 23;
+      if (x >= categoryButton.getX() && x < categoryButton.getX() + categoryButton.getWidth()
+          && y >= first && y < first + dropdownRows() * 17)
+        chooseCategory(categoryOffset + (int) (y - first) / 17);
+      else choosingCategory = false;
+      return true;
+    }
+    return super.mouseClicked(x, y, button);
+  }
+
+  @Override
+  public boolean keyPressed(int key, int scanCode, int modifiers) {
+    if (tab == 2 && choosingCategory) {
+      switch (key) {
+        case org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE, org.lwjgl.glfw.GLFW.GLFW_KEY_TAB -> choosingCategory = false;
+        case org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER, org.lwjgl.glfw.GLFW.GLFW_KEY_SPACE,
+            org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ENTER -> chooseCategory(categoryCursor);
+        case org.lwjgl.glfw.GLFW.GLFW_KEY_UP, org.lwjgl.glfw.GLFW.GLFW_KEY_DOWN -> {
+          categoryCursor = net.minecraft.util.Mth.clamp(categoryCursor
+              + (key == org.lwjgl.glfw.GLFW.GLFW_KEY_DOWN ? 1 : -1), 0, RecentItems.CATEGORIES.length - 1);
+          categoryOffset = net.minecraft.util.Mth.clamp(categoryOffset,
+              Math.max(0, categoryCursor - dropdownRows() + 1), categoryCursor);
+          playCategoryNarration();
+        }
+        default -> { return true; }
+      }
+      return true;
+    }
+    return super.keyPressed(key, scanCode, modifiers);
+  }
+
+  private void playCategoryNarration() {
+    if (minecraft != null) minecraft.getNarrator().sayNow(Component.literal(RecentItems.CATEGORIES[categoryCursor]));
+  }
+
   private void loadRecent(int page) {
-    historyPage = Math.max(0, Math.min(11, page));
+    historyPage = Math.max(0, Math.min(31, page));
     history = null;
     recentRows = java.util.List.of();
     scroll = 0;
     historyWait = 60;
-    historyRequest = (++historySequence << 7) | (historyPage << 3) | category;
+    historyRequest = (++historySequence << 8) | (historyPage << 3) | category;
     send(19, historyRequest);
   }
 
@@ -436,10 +527,20 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
       lines.add(Component.literal(name));
       net.minecraft.world.item.enchantment.EnchantmentHelper.getEnchantments(icon)
           .forEach((enchant, level) -> lines.add(enchant.getFullname(level)));
-      int mode = display.getInt("Mode");
-      if (mode == 2) lines.add(Component.literal("背包已处理，可能已压缩或销毁"));
+      var amounts = row.getLongArray("Destinations");
+      int destinations = 0;
+      int lastMode = -1;
+      for (int mode = 0; mode < Math.min(4, amounts.length); mode++) {
+        if (amounts[mode] <= 0) continue;
+        destinations++;
+        lastMode = mode;
+        lines.add(Component.literal(receipt(mode) + " ×" + amounts[mode]
+            + (mode == 2 ? "（可能压缩或销毁）" : "")));
+      }
+      String detail = destinations > 1 ? destinations + " 个去向 · 悬停查看" :
+          lastMode >= 0 ? receipt(lastMode) : "已处理";
       decoded.add(new RecentRow(icon, name, "×" + row.getLong("Count"),
-          receipt(mode) + "  " + CLOCK.format(java.time.Instant.ofEpochMilli(row.getLong("Time"))), lines));
+          detail + "  " + CLOCK.format(java.time.Instant.ofEpochMilli(row.getLong("Time"))), lines));
     }
     return decoded;
   }

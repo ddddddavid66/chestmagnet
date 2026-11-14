@@ -32,6 +32,11 @@ public final class LootrCompat {
     }
   }
 
+  static boolean supports(Object source) {
+    return source instanceof LootrChestMinecartEntity
+        || source instanceof RandomizableContainerBlockEntity && source instanceof ILootBlockEntity;
+  }
+
   public static void clear() {
     SEEN.clear();
   }

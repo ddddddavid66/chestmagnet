@@ -16,7 +16,7 @@ public abstract class OriginalCompassItemMixin {
  @Inject(method="setNotFound",at=@At("HEAD"),remap=false)
  private void magnet$fail(ItemStack stack,int radius,int samples,CallbackInfo ci){CompassTargets.failed(stack);}
  @Inject(method="setState",at=@At("HEAD"),remap=false)
- private void magnet$cancel(ItemStack stack,BlockPos at,@Coerce Object state,Player player,CallbackInfo ci){if(player instanceof ServerPlayer p && state.toString().equals("INACTIVE"))CompassTargets.state(p,"CANCELLED");}
+ private void magnet$cancel(ItemStack stack,BlockPos at,@Coerce Object state,Player player,CallbackInfo ci){if(player instanceof ServerPlayer p && state instanceof Enum<?> value && value.name().equals("INACTIVE"))CompassTargets.cancel(stack,p);}
  @Inject(method="setInactive",at=@At("HEAD"),remap=false)
- private void magnet$inactive(ItemStack stack,Player player,CallbackInfo ci){if(player instanceof ServerPlayer p)CompassTargets.state(p,"CANCELLED");}
+ private void magnet$inactive(ItemStack stack,Player player,CallbackInfo ci){if(player instanceof ServerPlayer p)CompassTargets.cancel(stack,p);}
 }

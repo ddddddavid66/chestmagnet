@@ -3,6 +3,9 @@ import java.util.*;
 import java.lang.reflect.*;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.resources.ResourceLocation;
+import com.mojang.datafixers.util.Pair;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.core.registries.Registries;
@@ -12,27 +15,137 @@ import net.minecraft.world.item.ItemStack;
 public final class CompassTargets {
   private static final String KEY="ChestMagnetCompassV1";
   private static final List<StructureTargetProvider> PROVIDERS=new java.util.concurrent.CopyOnWriteArrayList<>();
-  private static final Map<ItemStack,ServerPlayer> OWNERS=Collections.synchronizedMap(new WeakHashMap<>());
+  private record Ticket(UUID revision, UUID owner, ResourceLocation dimension) {}
+  private record Candidate(Structure structure, ChunkPos start) {}
+  private static final Map<ItemStack, Ticket> TICKETS = new com.google.common.collect.MapMaker().weakKeys().makeMap();
+  private static final Map<ItemStack, java.lang.ref.WeakReference<ServerPlayer>> PLAYERS = new com.google.common.collect.MapMaker().weakKeys().makeMap();
+  private static final Map<Object, Ticket> SESSIONS = new com.google.common.collect.MapMaker().weakKeys().makeMap();
+  private static final Map<Object, Map<BlockPos, Candidate>> PROOFS = new com.google.common.collect.MapMaker().weakKeys().makeMap();
+  private static boolean legacyActive;
+  public static void legacyAdapterApplied() { legacyActive = true; }
   public static void copy(ServerPlayer from,ServerPlayer to){if(from.getPersistentData().contains(KEY))to.getPersistentData().put(KEY,from.getPersistentData().getCompound(KEY).copy());}
   public static void login(ServerPlayer p){if(p.getPersistentData().getCompound(KEY).getString("State").equals("SEARCHING"))state(p,"CANCELLED");}
   public static void register(StructureTargetProvider provider){PROVIDERS.add(Objects.requireNonNull(provider));}
-  public static boolean apiPresent(){return CompassMixinSupport.present("com.chaosthedude.explorerscompass.api.StructureSearchSnapshot");}
+  private static final class SnapshotApi {
+    static final Method METHOD = find();
+    private static Method find() {
+      String name = "com.chaosthedude.explorerscompass.api.StructureSearchSnapshot";
+      if (!CompassMixinSupport.present(name)) return null;
+      try {
+        var method = Class.forName(name, false, CompassTargets.class.getClassLoader())
+            .getMethod("getSnapshot", ServerPlayer.class);
+        return Modifier.isStatic(method.getModifiers()) && method.getReturnType() == CompoundTag.class ? method : null;
+      } catch (ReflectiveOperationException | LinkageError compatibleVersionMissing) {
+        return null;
+      }
+    }
+  }
+  public static boolean apiPresent(){return SnapshotApi.METHOD != null;}
   public static CompoundTag snapshot(ServerPlayer p){
     for(var provider:PROVIDERS){var t=provider.snapshot(p);if(t!=null)return t.copy();}
-    if(apiPresent())try{return ((CompoundTag)Class.forName("com.chaosthedude.explorerscompass.api.StructureSearchSnapshot").getMethod("getSnapshot",ServerPlayer.class).invoke(null,p)).copy();}
-    catch(ReflectiveOperationException e){throw new IllegalStateException("指南针快照接口调用失败",e);}
-    if(p.getPersistentData().contains(KEY))return p.getPersistentData().getCompound(KEY).copy();
+    if (apiPresent()) try {
+      var result = (CompoundTag) SnapshotApi.METHOD.invoke(null, p);
+      if (result != null) return result.copy();
+    } catch (ReflectiveOperationException | LinkageError error) {
+      // 接口不匹配时只停用联动，附近转移仍能继续。
+    }
+    if (legacyActive) {
+      var old = p.getPersistentData().getCompound(KEY);
+      if (old.getBoolean("VerifiedBridge128")) return old.copy();
+    }
     var t=new CompoundTag();t.putString("State","UNSUPPORTED");return t;
   }
   public static void publish(ServerPlayer p,UUID revision,String state,BlockPos anchor,Object key,ChunkPos start){
+    publish(p, revision, state, anchor, key, start, p.serverLevel().dimension().location());
+  }
+  private static void publish(ServerPlayer p,UUID revision,String state,BlockPos anchor,Object key,ChunkPos start,ResourceLocation dimension){
     var t=new CompoundTag();t.putInt("Version",1);t.putUUID("Revision",revision);t.putString("State",state);
-    t.putString("Dimension",p.level().dimension().location().toString());
+    t.putString("Dimension",dimension.toString());
     if(state.equals("FOUND")){t.putString("Structure",key.toString());t.putInt("StartX",start.x);t.putInt("StartZ",start.z);t.putLong("Anchor",anchor.asLong());}
+    t.putBoolean("VerifiedBridge128", true);
     p.getPersistentData().put(KEY,t);
   }
-  public static void begin(ServerPlayer p,ItemStack stack){OWNERS.put(stack,p);publish(p,UUID.randomUUID(),"SEARCHING",null,null,null);}
+  public static void begin(ServerPlayer p, ItemStack stack) {
+    var ticket = new Ticket(UUID.randomUUID(), p.getUUID(), p.serverLevel().dimension().location());
+    TICKETS.put(stack, ticket);
+    PLAYERS.put(stack, new java.lang.ref.WeakReference<>(p));
+    publish(p, ticket.revision(), "SEARCHING", null, null, null);
+  }
   public static void state(ServerPlayer p,String state){var old=snapshot(p);publish(p,old.hasUUID("Revision")?old.getUUID("Revision"):UUID.randomUUID(),state,null,null,null);}
-  public static void failed(ItemStack stack){var p=OWNERS.remove(stack);if(p!=null)state(p,"NOT_FOUND");}
+  private static boolean latest(ServerPlayer p, Ticket ticket) {
+    if (ticket == null || !ticket.owner().equals(p.getUUID())
+        || p.getServer().getPlayerList().getPlayer(ticket.owner()) != p) return false;
+    var last = p.getPersistentData().getCompound(KEY);
+    return last.hasUUID("Revision") && last.getUUID("Revision").equals(ticket.revision());
+  }
+
+  private static boolean current(ServerPlayer p, Ticket ticket) {
+    return latest(p, ticket) && p.getPersistentData().getCompound(KEY).getString("State").equals("SEARCHING");
+  }
+
+  public static void cancel(ItemStack stack, ServerPlayer p) {
+    var ticket = TICKETS.get(stack);
+    if (latest(p, ticket)) publish(p, ticket.revision(), "CANCELLED", null, null, null, ticket.dimension());
+    // 重登后的已找到结果没有内存票据，玩家主动取消仍应清除它。
+    else if (ticket == null && !p.getPersistentData().getCompound(KEY).getString("State").equals("SEARCHING"))
+      state(p, "CANCELLED");
+  }
+
+  public static void failed(ItemStack stack) {
+    var owner = PLAYERS.get(stack);
+    var player = owner == null ? null : owner.get();
+    if (player != null) failed(stack, player);
+  }
+
+  public static void failed(ItemStack stack, ServerPlayer p) {
+    var ticket = TICKETS.get(stack);
+    if (current(p, ticket)) publish(p, ticket.revision(), "NOT_FOUND", null, null, null, ticket.dimension());
+  }
+
+  public static void attach(Object session, ServerLevel level, ServerPlayer p, ItemStack stack) {
+    var ticket = TICKETS.get(stack);
+    if (current(p, ticket) && ticket.dimension().equals(level.dimension().location()))
+      SESSIONS.put(session, ticket);
+  }
+
+  public static void candidate(Object session, ChunkPos chunk, Pair<BlockPos, Structure> result) {
+    if (result != null) candidate(session, chunk, result.getFirst(), result.getSecond());
+  }
+
+  public static void candidate(Object session, ChunkPos chunk, BlockPos anchor, Structure structure) {
+    if (session == null || anchor == null || structure == null || SESSIONS.get(session) == null) return;
+    // 异步候选可能落败；只关联真正返回的坐标对象，不把最后访问的区块当作获胜者。
+    PROOFS.computeIfAbsent(session, unused -> new com.google.common.collect.MapMaker().weakKeys().makeMap())
+        .put(anchor, new Candidate(structure, chunk));
+  }
+
+  public static void structureResult(Object session, ServerLevel level, ServerPlayer p, BlockPos pos,
+                                     Structure expected, ResourceLocation key, boolean allowBiome) {
+    if (!level.getServer().isSameThread()) {
+      level.getServer().execute(() -> structureResult(session, level, p, pos, expected, key, allowBiome));
+      return;
+    }
+    var ticket = SESSIONS.get(session);
+    if (!current(p, ticket)) return;
+    var candidates = PROOFS.get(session);
+    var proof = candidates == null ? null : candidates.get(pos);
+    if (proof != null) {
+      var actual = level.registryAccess().registryOrThrow(Registries.STRUCTURE).getKey(proof.structure());
+      if (actual != null && (expected == null || expected == proof.structure()) && (key == null || key.equals(actual))) {
+        var anchor = level.isOutsideBuildHeight(pos) ? new BlockPos(pos.getX(), level.getSeaLevel(), pos.getZ()) : pos;
+        publish(p, ticket.revision(), "FOUND", anchor, actual, proof.start(), ticket.dimension());
+        return;
+      }
+    }
+    publish(p, ticket.revision(), allowBiome && proof == null ? "NON_STRUCTURE" : "NOT_FOUND",
+        null, null, null, ticket.dimension());
+  }
+
+  public static void stopped(Object session, ServerPlayer p, String outcome) {
+    var ticket = SESSIONS.get(session);
+    if (current(p, ticket)) publish(p, ticket.revision(), outcome, null, null, null, ticket.dimension());
+  }
+
   public static Object field(Object o,String name){
     for(Class<?> c=o.getClass();c!=null;c=c.getSuperclass())try{var f=c.getDeclaredField(name);f.setAccessible(true);return f.get(o);}catch(NoSuchFieldException e){}catch(ReflectiveOperationException e){throw new IllegalStateException(e);}
     throw new IllegalStateException("指南针字段不匹配: "+name);
@@ -46,9 +159,5 @@ public final class CompassTargets {
     String state=result.equals("found")?(job.getClass().getSimpleName().equals("StructureSearch")?"FOUND":"NON_STRUCTURE"):result.equals("cancelled")?"CANCELLED":"NOT_FOUND";
     try{if(state.equals("FOUND")){var c=call(job,"result");publish(p,token,state,(BlockPos)call(c,"position"),call(c,"key"),(ChunkPos)call(c,"chunk"));}else publish(p,token,state,null,null,null);}
     catch(ReflectiveOperationException e){throw new IllegalStateException("指南针搜索结果接口不匹配",e);}
-  }
-  public static void found(Object worker,BlockPos anchor,Structure structure,ChunkPos start){
-    if(start==null)return;
-    if(field(worker,"player") instanceof ServerPlayer p){var old=snapshot(p);publish(p,old.hasUUID("Revision")?old.getUUID("Revision"):UUID.randomUUID(),"FOUND",anchor,p.level().registryAccess().registryOrThrow(Registries.STRUCTURE).getKey(structure),start);}
   }
 }

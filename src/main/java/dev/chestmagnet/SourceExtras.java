@@ -418,7 +418,7 @@ public final class SourceExtras {
   static boolean needsNearbyFinish(ServerPlayer p, Object o, boolean locked) {
     if (!locked || !(o instanceof BlockEntity be) || be.isRemoved()) return false;
     String id = blockId(p, be.getBlockPos());
-    if (id.startsWith("lootr:")) return false;
+    if (Sources.personalLoot(be)) return false;
     if (id.equals("aether:treasure_chest") || id.equals("tetra:forged_container")
         || ChurchContainers.known(be)) return true;
     if (be instanceof BaseContainerBlockEntity b) {
@@ -449,7 +449,7 @@ public final class SourceExtras {
       // 回调可能替换方块，绝不能拿旧库存引用拆除后来放上的同类箱子。
       if (be.isRemoved() || p.level().getBlockEntity(be.getBlockPos()) != be) return false;
       String id = blockId(p, be.getBlockPos());
-      if (id.startsWith("lootr:")) return true;
+      if (Sources.personalLoot(be)) return true;
       if (ChurchContainers.known(be)) ChurchContainers.finish(be);
       if (id.equals("aether:treasure_chest")) {
         Faults.stage("天境原生永久解锁");

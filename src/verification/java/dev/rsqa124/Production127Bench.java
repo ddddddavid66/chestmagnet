@@ -18,6 +18,14 @@ final class Production127Bench {
   private static final String FLAG = "chestmagnet.bench127";
 
   static void run(ServerLevel level, ServerPlayer p, ItemStack magnet) throws ReflectiveOperationException {
+    run(level, p, magnet, false);
+  }
+
+  static void screen(ServerLevel level, ServerPlayer p, ItemStack magnet) throws ReflectiveOperationException {
+    run(level, p, magnet, true);
+  }
+
+  private static void run(ServerLevel level, ServerPlayer p, ItemStack magnet, boolean screening) throws ReflectiveOperationException {
     var engineType = Class.forName("dev.chestmagnet.Engine");
     var engine = engineType.getConstructor().newInstance();
     var stateType = Class.forName("dev.chestmagnet.Engine$State");
@@ -41,10 +49,11 @@ final class Production127Bench {
     var tag = magnet.getOrCreateTagElement("ChestMagnet");
     tag.putInt("X", 32);
     tag.putInt("Z", 32);
-    for (int pair = -1; pair < 3; pair++) {
+    for (int pair = -1; pair < (screening ? 5 : 3); pair++) {
       for (int run = 0; run < 2; run++) {
         boolean candidate = ((pair + run) & 1) == 1;
         System.setProperty(FLAG, Boolean.toString(candidate));
+        System.setProperty("chestmagnet.bench128EmptySlots", Boolean.toString(candidate));
         for (String kind : List.of("near-static", "near-moving", "structure-hot")) {
           var costs = new long[40];
           int received = 0;
@@ -91,10 +100,13 @@ final class Production127Bench {
           Arrays.sort(costs);
           LOG.info("QA127_BENCH pair={} candidate={} kind={} p50_us={} p95_us={} items={}",
               pair, candidate, kind, costs[19] / 1000, costs[37] / 1000, received);
+          if (screening) LOG.info("QA128_SCREEN pair={} candidate={} kind={} p50_us={} p95_us={} items={}",
+              pair, candidate, kind, costs[19] / 1000, costs[37] / 1000, received);
         }
       }
     }
     System.clearProperty(FLAG);
+    System.clearProperty("chestmagnet.bench128EmptySlots");
   }
 
   private static long measure(Method method, Object owner, Object... params) throws ReflectiveOperationException {

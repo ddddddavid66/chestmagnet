@@ -5,13 +5,17 @@ import java.util.List;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import top.theillusivec4.curios.api.CuriosApi;
+import top.theillusivec4.curios.api.type.capability.ICurioItem;
 
 /** 只读取功能槽原栈，保留终端扣能及 Curios 自身同步。 */
 public final class CuriosCompat {
   private CuriosCompat() {}
 
   static boolean isAccessory(ServerPlayer player, ItemStack stack) {
-    return !CuriosApi.getItemStackSlots(stack, player.level()).isEmpty();
+    return stack.getItem() instanceof ICurioItem
+        || CuriosApi.getCurio(stack).isPresent()
+        || !CuriosApi.getItemStackSlots(stack, player).isEmpty()
+        || !CuriosApi.getItemStackSlots(stack, player.level()).isEmpty();
   }
 
   static List<ItemStack> terminals(ServerPlayer player) {
