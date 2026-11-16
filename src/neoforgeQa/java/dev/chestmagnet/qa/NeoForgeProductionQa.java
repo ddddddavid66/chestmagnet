@@ -157,7 +157,7 @@ public final class NeoForgeProductionQa {
     wrapper.getUpgradeHandler().setStackInSlot(0,
         new ItemStack(BuiltInRegistries.ITEM.get(id("sophisticatedbackpacks:advanced_void_upgrade"))));
     var voider = wrapper.getUpgradeHandler().getWrappersThatImplement(type).getFirst();
-    voider.setVoidType(net.p3pp3rf1y.sophisticatedcore.upgrades.voiding.VoidType.ALWAYS);
+    configureAlwaysVoid(voider);
     voider.getFilterLogic().setAllowList(true);
     voider.getFilterLogic().getFilterHandler().setStackInSlot(0, new ItemStack(Items.ECHO_SHARD));
     ((BackpackWrapper)wrapper).refreshInventoryForUpgradeProcessing();
@@ -165,7 +165,7 @@ public final class NeoForgeProductionQa {
     var sacrifice = new ItemStack(Items.ECHO_SHARD, 4);
     require(voider.stackMatchesFilter(sacrifice)
         && wrapper.getInventoryForInputOutput().insertItem(sacrifice, true).isEmpty(),
-        "native backpack void fixture: mode=" + voider.getVoidType() + " filter=" + voider.stackMatchesFilter(sacrifice)
+        "native backpack void fixture: filter=" + voider.stackMatchesFilter(sacrifice)
         + " native remains=" + wrapper.getInventoryForInputOutput().insertItem(sacrifice, true));
     barrel.setItem(0, sacrifice);
     work(p, magnet);
@@ -178,6 +178,20 @@ public final class NeoForgeProductionQa {
     Data.edit(magnet, t -> t.putInt("Mode", 0));
     LOG.info("QA_NEOFORGE_BACKPACK first backpack=2 second=9 leftover=0; 4 matching voided");
 
+  }
+
+  private static void configureAlwaysVoid(Object wrapper) throws ReflectiveOperationException {
+    // 两代精妙核心用不同选项表达相同的原生销毁行为；只改测试夹具。
+    for (var method : wrapper.getClass().getMethods()) {
+      if (!method.getName().equals("setVoidType") || method.getParameterCount() != 1) continue;
+      for (var value : method.getParameterTypes()[0].getEnumConstants()) {
+        if (value instanceof Enum<?> option && option.name().equals("ALWAYS")) {
+          method.invoke(wrapper, value);
+          return;
+        }
+      }
+    }
+    wrapper.getClass().getMethod("setShouldVoidOverflow", boolean.class).invoke(wrapper, false);
   }
 
   private static void lootr(ServerLevel level, BlockPos pos, ServerPlayer one) throws Exception {

@@ -14,7 +14,7 @@ config="chestmagnet.mixins.json"
 [[dependencies.chestmagnet]]
 modId="neoforge"
 type="required"
-versionRange="[21.1.230,21.2)"
+versionRange="[@NEOFORGE_MINIMUM@,21.2)"
 ordering="NONE"
 side="BOTH"
 

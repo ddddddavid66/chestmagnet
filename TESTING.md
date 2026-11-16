@@ -1,5 +1,7 @@
 # NeoForge 移植验证
 
+降门槛候选的验证见[实测版本表](docs/neoforge-compat-floor.md)。下文为原发行 JAR 的基线记录。
+
 环境：Minecraft 1.21.1、Java 21、NeoForge 21.1.230；较新 Quark/Lootr 组合单独用 21.1.252。测试使用独立目录和生成存档，旧 Forge 整合包和存档未修改。QA 模组是单独的 JAR；业务逻辑由待发布 JAR 加载。
 
 ## 实测最低组合

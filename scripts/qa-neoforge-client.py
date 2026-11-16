@@ -42,10 +42,12 @@ def main():
     parser.add_argument('--java', type=Path, default=Path('D:/Java/JDK/JDK21/bin/java.exe'))
     parser.add_argument('--world', type=Path, required=True, help='an isolated QA world produced by qa-neoforge.py')
     parser.add_argument('--scale', type=int, choices=(2, 3), default=2)
+    parser.add_argument('--neoforge', default='21.1.230')
+    parser.add_argument('--mods', nargs='*', default=[])
     args = parser.parse_args()
     home = args.launcher.resolve()
     vanilla = json.loads((home / 'versions/1.21.1/1.21.1.json').read_text(encoding='utf-8'))
-    ver = 'neoforge-21.1.230'
+    ver = 'neoforge-' + args.neoforge
     neo = json.loads((home / f'versions/{ver}/{ver}.json').read_text(encoding='utf-8'))
     assets = args.assets.resolve()
     asset_index = vanilla['assetIndex']['id']
@@ -62,6 +64,12 @@ def main():
     shutil.copytree(args.world, case / 'saves/QaClient', ignore=shutil.ignore_patterns('session.lock'))
     shutil.copy2(ROOT / 'build/libs/chestmagnet-neoforge-1.21.1-1.2.8.jar', case / 'mods')
     shutil.copy2(ROOT / 'build/qa/chestmagnet-neoforge-qa.jar', case / 'mods')
+    pins = {p['name']: p for p in json.loads((ROOT / 'docs/neoforge-upstream-lock.json').read_text(encoding='utf-8'))['dependencies']}
+    for name in args.mods:
+        jar = ROOT / f'libs/neoforge/{name}.jar'
+        if hashlib.sha256(jar.read_bytes()).hexdigest() != pins[name]['sha256']:
+            raise RuntimeError(f'Wrong SHA-256 for {name}')
+        shutil.copy2(jar, case / 'mods')
     (case / 'options.txt').write_text(f'lang:zh_cn\nguiScale:{args.scale}\nrenderDistance:4\nsimulationDistance:5\n'
                                     'maxFps:45\npauseOnLostFocus:false\n', encoding='utf-8')
     feat = {'has_custom_resolution': True, 'has_quick_plays_support': True, 'is_quick_play_singleplayer': True}

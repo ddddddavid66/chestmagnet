@@ -4,9 +4,9 @@
 
 ## 安装
 
-- Minecraft **1.21.1**、Java **21**、NeoForge **21.1.230 或更高的 21.1.x**。
+- Minecraft **1.21.1**、Java **21**。本地降门槛候选 JAR 单装最低实测为 **NeoForge 21.1.1**；已发布的旧 JAR 仍要求 21.1.230。
 - 把 `chestmagnet-neoforge-1.21.1-1.2.8.jar` 放进 `mods`。联机时客户端、服务端都安装此版，不能混用 1.20.1 Forge JAR。
-- 可选联动不随磁铁一起发货。见 [上游发行文件锁定表](docs/neoforge-upstream-lock.json) 和 [测试记录](TESTING.md)。Quark 4.1-488 本身需要 NeoForge 21.1.252，并不改变磁铁本体的最低版本。
+- 可选联动不随磁铁一起发货。安装前核对 [本轮实测版本表](docs/neoforge-compat-floor.md)，联动可能需要比磁铁本体更高的 NeoForge。Quark 4.1-488 本身需要 NeoForge 21.1.252。
 - 从旧世界迁移时先备份，用副本测试。磁铁保留 `chestmagnet:chest_magnet`、范围、排除、模式和诊断数据。旧缓存里无法解析的物品保留原始数据并封存，不自动补发。
 - 本移植不包含 Tetra、自制指南针 1.3.4、Goety: Revelation 专属容器和绯红教堂基座。
 
@@ -20,6 +20,6 @@
 
 ## 构建
 
-使用 Java 21 执行 `./gradlew build`（Windows：`gradlew.bat build`）。可选的 `prepare-dependencies.ps1` 从锁定的发行文件下载并验证 SHA-256，不接触现有整合包。用 `gradlew.bat dist` 生成待发布 JAR 和 SHA-256。QA 辅助 JAR 不是发布物。
+使用 Java 21 执行 `./gradlew build`（Windows：`gradlew.bat build`）。可选的 `prepare-dependencies.ps1` 从[上游锁定表](docs/neoforge-upstream-lock.json)下载并验证 SHA-256，不接触现有整合包。用 `gradlew.bat dist -PdistDirectory=dist/compat-floor` 生成候选 JAR 和 SHA-256，不覆盖原发行归档。QA 辅助 JAR 不是发布物。
 
 维护分支为 `codex/port-1.21.1-neoforge`，基线 `d74ca02`。移植版使用独立发行标签 `1.21.1-neoforge-v1.2.8`，不替换旧 Forge 的文件或标签。

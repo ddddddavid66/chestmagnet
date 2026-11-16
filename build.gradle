@@ -47,6 +47,13 @@ neoForge {
     mods { chestmagnet { sourceSet(sourceSets.main) } }
 }
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.release = 21; options.compilerArgs.add('-Xmaxerrs'); options.compilerArgs.add('500') }
+tasks.named('processResources') {
+    def minimum = project.findProperty('neoForgeMinimum') ?: locked.neoForgeMinimum ?: locked.neoForge
+    inputs.property('neoForgeMinimum', minimum)
+    filesMatching('META-INF/neoforge.mods.toml') {
+        filter { line -> line.replace('@NEOFORGE_MINIMUM@', minimum as String) }
+    }
+}
 jar {
     from 'LICENSE'
     preserveFileTimestamps = false
@@ -55,11 +62,12 @@ jar {
 tasks.register('dist', Copy) {
     dependsOn 'build'
     from tasks.jar
-    into 'dist'
+    def outputDir = file(findProperty('distDirectory') ?: 'dist')
+    into outputDir
     doLast {
-        def out = file("dist/${tasks.jar.archiveFileName.get()}")
+        def out = new File(outputDir, tasks.jar.archiveFileName.get())
         def hash = MessageDigest.getInstance('SHA-256').digest(out.bytes).encodeHex().toString()
-        file("dist/${out.name}.sha256").text = hash + '  ' + out.name + '\n'
+        new File(outputDir, "${out.name}.sha256").text = hash + '  ' + out.name + '\n'
     }
 }
 

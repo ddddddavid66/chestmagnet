@@ -9,6 +9,7 @@ import java.util.UUID;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.world.item.ItemStack;
+import net.neoforged.fml.ModList;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -31,6 +32,9 @@ final class ClientProductionQa {
       switch (stage) {
         case 0 -> {
           if (mc.screen != null) return;
+          if (!java.util.Arrays.asList(mc.options.keyMappings).containsAll(java.util.List.of(
+              ClientEvents.TOGGLE, ClientEvents.SETTINGS, ClientEvents.EXCLUDE, ClientEvents.STRUCTURE)))
+            throw new AssertionError("all four key mappings must be registered with Minecraft");
           if (ClientEvents.TOGGLE.getKeyConflictContext().isActive()) throw new AssertionError("no magnet: must be inactive");
           server.execute(() -> {
             var p = server.getPlayerList().getPlayer(mc.player.getUUID());
@@ -80,9 +84,24 @@ final class ClientProductionQa {
           var row = rows.getCompound(0);
           if (!row.getCompound("Display").getString("Item").equals("minecraft:emerald") || row.getLong("Count") != 4)
             throw new AssertionError("server history payload does not match collected items");
-          NeoForgeProductionQa.LOG.info("QA_NEOFORGE_CLIENT_PASS live collection=4, play payload, settings, history and key context");
-          stage = -1;
-          mc.stop();
+          if (!ModList.get().isLoaded("beyonddimensions")) {
+            finish(mc);
+            return;
+          }
+          mc.player.closeContainer();
+          var playerId = mc.player.getUUID();
+          server.execute(() -> openBeyond(server.getPlayerList().getPlayer(playerId)));
+          next();
+        }
+        case 5 -> {
+          if (!(mc.screen instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?> menu)
+              || !menu.getMenu().getClass().getName().startsWith("com.wintercogs.beyonddimensions.")) return;
+          next();
+        }
+        case 6 -> {
+          if (stepAge < 30) return;
+          NeoForgeProductionQa.LOG.info("QA_NEOFORGE_CLIENT_BEYOND native terminal rendered");
+          finish(mc);
         }
       }
     } catch (Throwable ex) {
@@ -90,6 +109,23 @@ final class ClientProductionQa {
       NeoForgeProductionQa.LOG.error("QA_NEOFORGE_CLIENT_FAILURE", ex);
       mc.stop();
     }
+  }
+
+  private static void openBeyond(net.minecraft.server.level.ServerPlayer player) {
+    var network = com.wintercogs.beyonddimensions.api.dimensionnet.DimensionsNet.createNewNetForPlayer(player, 100, 12);
+    if (network == null) throw new IllegalStateException("Beyond QA network was not created");
+    var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.get(
+        net.minecraft.resources.ResourceLocation.parse("beyonddimensions:net_terminal_item"));
+    var terminal = new ItemStack(item);
+    terminal.set(com.wintercogs.beyonddimensions.common.init.BDDataComponents.NET_ID_DATA.get(), network.getId());
+    player.getInventory().setItem(player.getInventory().selected, terminal);
+    item.use(player.serverLevel(), player, net.minecraft.world.InteractionHand.MAIN_HAND);
+  }
+
+  private static void finish(Minecraft mc) {
+    NeoForgeProductionQa.LOG.info("QA_NEOFORGE_CLIENT_PASS live collection=4, play payload, settings, history, registered keys");
+    stage = -1;
+    mc.stop();
   }
 
   private static void next() { stage++; stepAge = 0; }

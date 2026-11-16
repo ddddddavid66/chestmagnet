@@ -41,6 +41,8 @@ def main():
     parser.add_argument('case', choices=PACKS)
     parser.add_argument('--java', type=Path, default=Path('D:/Java/JDK/JDK21/bin/java.exe'))
     parser.add_argument('--neoforge')
+    parser.add_argument('--swap', nargs='*', default=[], metavar='ORIGINAL=PIN',
+                        help='replace named dependencies in the selected QA case')
     parser.add_argument('--boot-only', action='store_true', help='do not run in-game assertions')
     parser.add_argument('--sync', action='store_true', help='force synchronous Enhance search')
     args = parser.parse_args()
@@ -64,7 +66,11 @@ def main():
     shutil.copy2(ROOT / 'build/libs/chestmagnet-neoforge-1.21.1-1.2.8.jar', d / 'mods')
     if test:
         shutil.copy2(ROOT / 'build/qa/chestmagnet-neoforge-qa.jar', d / 'mods')
-    for name in PACKS[args.case]:
+    swaps = dict(pair.split('=', 1) for pair in args.swap)
+    if not swaps.keys() <= set(PACKS[args.case]):
+        parser.error('--swap names must belong to the selected QA case')
+    for base_name in PACKS[args.case]:
+        name = swaps.get(base_name, base_name)
         jar = ROOT / f'libs/neoforge/{name}.jar'
         if hashlib.sha256(jar.read_bytes()).hexdigest() != PINS[name]['sha256']:
             raise RuntimeError(f'Wrong SHA-256 for {name}')

@@ -138,14 +138,18 @@ final class CompassProductionQa {
       var target = Class.forName("com.chaosthedude.explorerscompass.util.SearchTarget");
       item.getClass().getMethod("searchForTargets", Level.class, Player.class, target, List.class, BlockPos.class, ItemStack.class)
           .invoke(item, p.serverLevel(), p, Enum.valueOf((Class)target, kind), List.of(requested), p.blockPosition(), compass);
-    } else if (CASE.equals("edited")) {
-      item.getClass().getMethod("searchForStructure", Level.class, Player.class,
-          ResourceLocation.class, List.class, BlockPos.class, ItemStack.class)
-          .invoke(item, p.serverLevel(), p, requested, List.of(requested), p.blockPosition(), compass);
     } else {
-      item.getClass().getMethod("searchForStructure", Level.class, Player.class,
-          ResourceLocation.class, List.class, BlockPos.class, ItemStack.class, boolean.class)
-          .invoke(item, p.serverLevel(), p, requested, List.of(requested), p.blockPosition(), compass, false);
+      java.lang.reflect.Method search;
+      try {
+        search = item.getClass().getMethod("searchForStructure", Level.class, Player.class,
+            ResourceLocation.class, List.class, BlockPos.class, ItemStack.class, boolean.class);
+      } catch (NoSuchMethodException oldVersion) {
+        search = item.getClass().getMethod("searchForStructure", Level.class, Player.class,
+            ResourceLocation.class, List.class, BlockPos.class, ItemStack.class);
+      }
+      if (search.getParameterCount() == 7)
+        search.invoke(item, p.serverLevel(), p, requested, List.of(requested), p.blockPosition(), compass, false);
+      else search.invoke(item, p.serverLevel(), p, requested, List.of(requested), p.blockPosition(), compass);
     }
   }
 

@@ -13,8 +13,11 @@ foreach ($id in $Name) {
         throw "Unexpected checksum for $dest; move it aside before fetching."
     }
     $tmp = "$dest.download"
-    $parts = $pin.maven -split ':'
-    $url = 'https://cursemaven.com/curse/maven/{0}/{1}/{0}-{1}.jar' -f $parts[1], $parts[2]
+    $url = $pin.download
+    if (-not $url) {
+        $parts = $pin.maven -split ':'
+        $url = 'https://cursemaven.com/curse/maven/{0}/{1}/{0}-{1}.jar' -f $parts[1], $parts[2]
+    }
     try {
         Invoke-WebRequest -Uri $url -OutFile $tmp
         if ((Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash -ine $pin.sha256) { throw "SHA-256 mismatch: $id" }

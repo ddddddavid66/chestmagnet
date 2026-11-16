@@ -3,6 +3,7 @@
   "base": "d74ca027c0bb313f32e4e269e3f7ef692038a1bc",
   "minecraft": "1.21.1",
   "neoForge": "21.1.230",
+  "neoForgeMinimum": "21.1.1",
   "mdk": "https://github.com/NeoForgeMDKs/MDK-1.21.1-ModDevGradle/tree/e0000cb81c6ca4bb218046cfd8ade771a42e9c32",
   "dependencies": [
     {
@@ -991,6 +992,883 @@
             "modId": "minecraft",
             "required": true,
             "versionRange": "[1.21,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "backpacks-floor",
+      "source": "https://github.com/P3pp3rF1y/SophisticatedBackpacks",
+      "license": "All Rights Reserved",
+      "fileId": 6003039,
+      "maven": "curse.maven:sophisticated-backpacks-422301:6003039",
+      "sha256": "9189e04aa89bf34709e6794ec5b80f91c1cf402d25c863fa77c876f4a06e02dd",
+      "mods": [
+        {
+          "id": "sophisticatedbackpacks",
+          "version": "3.20.27"
+        }
+      ],
+      "requires": {
+        "sophisticatedbackpacks": [
+          {
+            "modId": "sophisticatedcore",
+            "type": "required",
+            "versionRange": "[1.0.2,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.0,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "minecraft",
+            "type": "required",
+            "versionRange": "[1.21.1,1.21.2)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "core-floor",
+      "source": "https://github.com/P3pp3rF1y/SophisticatedCore",
+      "license": "All Rights Reserved",
+      "releaseId": "J9ioW4jc",
+      "download": "https://cdn.modrinth.com/data/nmoqTijg/versions/J9ioW4jc/sophisticatedcore-1.21.1-1.0.2.810.jar",
+      "sha256": "bfd2b8eead199c0fc9c636f5e72e530e0134448ffb404183b1ad5612f003cfb2",
+      "mods": [
+        {
+          "id": "sophisticatedcore",
+          "version": "1.0.2"
+        }
+      ],
+      "requires": {
+        "sophisticatedcore": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.0,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "minecraft",
+            "type": "required",
+            "versionRange": "[1.21.1,1.21.2)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "rs-floor",
+      "source": "https://github.com/refinedmods/refinedstorage2",
+      "license": "MIT",
+      "releaseId": "6FqDjaVE",
+      "download": "https://cdn.modrinth.com/data/KDvYkUg3/versions/6FqDjaVE/refinedstorage-neoforge-2.0.4.jar",
+      "sha256": "b1f936d3068a19ae6694842783febd6e6c98308d170b82c8ddbb7b8cf0042960",
+      "mods": [
+        {
+          "id": "refinedstorage",
+          "version": "2.0.4"
+        }
+      ],
+      "requires": {
+        "refinedstorage": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.181,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "beyond-floor",
+      "source": "https://github.com/Frostbite-time/BeyondDimensions",
+      "license": "MIT",
+      "fileId": 9224058,
+      "maven": "curse.maven:beyond-dimensions-1222890:9224058",
+      "sha256": "4faa8df7a1428b96f61c9cebe7580d57b52dee6d921e141e16958b31a02f6823",
+      "mods": [
+        {
+          "id": "beyonddimensions",
+          "version": "0.8.0"
+        }
+      ],
+      "requires": {
+        "beyonddimensions": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.194,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "minecraft",
+            "type": "required",
+            "versionRange": "[1.21.1]",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "compixel",
+            "type": "required",
+            "versionRange": "[0.1.12,0.2)",
+            "ordering": "AFTER",
+            "side": "BOTH"
+          },
+          {
+            "modId": "kotlinforforge",
+            "type": "optional",
+            "ordering": "AFTER",
+            "side": "BOTH",
+            "mc-publish": {
+              "curseforge": "kotlin-for-forge"
+            }
+          },
+          {
+            "modId": "create",
+            "type": "optional",
+            "versionRange": "[6.0.0,)",
+            "ordering": "AFTER",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "compixel-floor",
+      "source": "https://github.com/Frostbite-time/CompixelUI",
+      "license": "MIT",
+      "fileId": 9224000,
+      "maven": "curse.maven:compixel-1715758:9224000",
+      "sha256": "95bfc5e5208df0bfe68b7a4aaf0405bf85acd6d3cce43af7f882e0e91afefffb",
+      "mods": [
+        {
+          "id": "compixel",
+          "version": "0.1.12"
+        }
+      ],
+      "requires": {
+        "compixel": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.1,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "minecraft",
+            "type": "required",
+            "versionRange": "[1.21.1]",
+            "ordering": "NONE",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "enhance-1.5.0-floor",
+      "source": "https://github.com/dreamforSh/ExplorersCompass",
+      "license": "CC BY-NC-SA 4.0",
+      "fileId": 8630097,
+      "maven": "curse.maven:explorers-compass-enhance-1649198:8630097",
+      "sha256": "fc81f7dce05e7e18d266397d40a88656479636561755a883031300eac76c082d",
+      "mods": [
+        {
+          "id": "explorerscompass",
+          "version": "1.21.1-neoforge-1.5.0"
+        }
+      ],
+      "requires": {
+        "explorerscompass": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.0,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "minecraft",
+            "type": "required",
+            "versionRange": "[1.21.1]",
+            "ordering": "NONE",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "enhance-legacy-floor",
+      "source": "https://github.com/dreamforSh/ExplorersCompass",
+      "license": "CC BY-NC-SA 4.0",
+      "fileId": 8761369,
+      "maven": "curse.maven:explorers-compass-enhance-1649198:8761369",
+      "sha256": "dfc807573ab06ec1f60b5ea92baef2d27cc4bbcfaf07f46a09b49e7f5a25d584",
+      "mods": [
+        {
+          "id": "explorerscompass",
+          "version": "1.21.1-neoforge-1.5.3"
+        }
+      ],
+      "requires": {
+        "explorerscompass": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.0,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "minecraft",
+            "type": "required",
+            "versionRange": "[1.21.1]",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "jecharacters",
+            "type": "optional",
+            "versionRange": "[4.5.0,)",
+            "ordering": "NONE",
+            "side": "CLIENT"
+          }
+        ]
+      }
+    },
+    {
+      "name": "quartz-floor",
+      "source": "https://github.com/refinedmods/refinedstorage-quartz-arsenal",
+      "license": "MIT",
+      "fileId": 7961977,
+      "maven": "curse.maven:refined-storage-quartz-arsenal-1230483:7961977",
+      "sha256": "a3b8d419666a2fa22950147ced8c64f529fc74a7ebd43140c047e615248a3953",
+      "mods": [
+        {
+          "id": "refinedstorage_quartz_arsenal",
+          "version": "1.0.7"
+        }
+      ],
+      "requires": {
+        "refinedstorage_quartz_arsenal": [
+          {
+            "modId": "refinedstorage",
+            "type": "required",
+            "versionRange": "[2.0.4,)",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "curios-floor",
+      "source": "https://github.com/TheIllusiveC4/Curios",
+      "license": "LGPL-3.0-or-later",
+      "releaseId": "DWBpfpw1",
+      "download": "https://cdn.modrinth.com/data/vvuO3ImH/versions/DWBpfpw1/curios-neoforge-9.2.0%2B1.21.1.jar",
+      "sha256": "1a5362673f5aa8cf03955c43c8c834720710b306883b3a6f7ae1f33752350423",
+      "mods": [
+        {
+          "id": "curios",
+          "version": "9.2.0+1.21.1"
+        }
+      ],
+      "requires": {
+        "curios": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.60,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "minecraft",
+            "type": "required",
+            "versionRange": "[1.21, 1.22)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "lootr-floor",
+      "source": "https://github.com/LootrMinecraft/Lootr",
+      "license": "https://github.com/noobanidus/Lootr/blob/1.16/LICENSE",
+      "fileId": 7486983,
+      "maven": "curse.maven:lootr-361276:7486983",
+      "sha256": "40253bff1608366efe35166cdd3c4616f7ce86b63eea167d35d99cfcc38d3e8f",
+      "mods": [
+        {
+          "id": "lootr",
+          "version": "1.21.1-1.11.36.111"
+        }
+      ],
+      "requires": {
+        "lootr": [
+          {
+            "modId": "minecraft",
+            "type": "required",
+            "versionRange": "1.21.1"
+          },
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.195,)"
+          }
+        ]
+      }
+    },
+    {
+      "name": "quark-floor",
+      "source": "https://github.com/VazkiiMods/Quark",
+      "license": "https://github.com/VazkiiMods/Quark/blob/master/LICENSE.md",
+      "fileId": 7625365,
+      "maven": "curse.maven:quark-243121:7625365",
+      "sha256": "e64e6681ee0e110c737aaccd1675e9b32f11654cbfd954b77ffbd07811720f75",
+      "mods": [
+        {
+          "id": "quark",
+          "version": "4.1-473"
+        }
+      ],
+      "requires": {
+        "quark": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.0.10,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "zeta",
+            "type": "required",
+            "versionRange": "[1.0-28,2.0)",
+            "ordering": "AFTER",
+            "side": "BOTH"
+          },
+          {
+            "modId": "biolith",
+            "type": "required",
+            "versionRange": "[3.0.0,3.1.0)",
+            "ordering": "AFTER",
+            "side": "BOTH"
+          },
+          {
+            "modId": "lootr",
+            "type": "optional",
+            "versionRange": "[1.10.34.86,)",
+            "ordering": "AFTER",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "quark-475-floor",
+      "source": "https://github.com/VazkiiMods/Quark",
+      "license": "https://github.com/VazkiiMods/Quark/blob/master/LICENSE.md",
+      "fileId": 7777937,
+      "maven": "curse.maven:quark-243121:7777937",
+      "sha256": "f9c2acabc8cefd4fee0f4a4a06c9be1de4a784d56e3813466b0871087dec5e73",
+      "mods": [
+        {
+          "id": "quark",
+          "version": "4.1-475"
+        }
+      ],
+      "requires": {
+        "quark": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.0.10,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "zeta",
+            "type": "required",
+            "versionRange": "[1,1.2)",
+            "ordering": "AFTER",
+            "side": "BOTH"
+          },
+          {
+            "modId": "biolith",
+            "type": "required",
+            "versionRange": "[3.0.0,3.1.0)",
+            "ordering": "AFTER",
+            "side": "BOTH"
+          },
+          {
+            "modId": "lootr",
+            "type": "optional",
+            "versionRange": "[1.10.34.86,)",
+            "ordering": "AFTER",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "zeta-floor",
+      "source": "https://github.com/VazkiiMods/Zeta",
+      "license": "https://github.com/VazkiiMods/Zeta/blob/master/LICENSE.md",
+      "fileId": 7625372,
+      "maven": "curse.maven:zeta-968868:7625372",
+      "sha256": "871a2616a532d10b23a186f07da87143ca2a90bd6c2537366fc722c78cfcc364",
+      "mods": [
+        {
+          "id": "zeta",
+          "version": "1.1-38"
+        }
+      ],
+      "requires": {
+        "zeta": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.192,)",
+            "ordering": "AFTER",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "aether-floor",
+      "source": "https://github.com/The-Aether-Team/The-Aether",
+      "license": "Assets: All Rights Reserved; Code: LGPL-3.0",
+      "fileId": 6040708,
+      "maven": "curse.maven:aether-255308:6040708",
+      "sha256": "a57176217ab1f9d6f1c753b7dcf9215865aef4152de2fe82038c075f77c3c6a2",
+      "mods": [
+        {
+          "id": "aether",
+          "version": "1.5.1"
+        }
+      ],
+      "requires": {
+        "aether": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.72,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "minecraft",
+            "type": "required",
+            "versionRange": "[1.21.1,1.21.2)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "aquamirae-floor",
+      "source": "https://github.com/ObscuriaLithium/aquamirae",
+      "license": "Obscuria Modding License (OML)",
+      "releaseId": "2ow9qoyT",
+      "download": "https://cdn.modrinth.com/data/k23mNPhZ/versions/2ow9qoyT/aquamirae-neoforge-1.21.1-7.2.0.jar",
+      "sha256": "535c51a1741027755398e22751dab86f3590d7fe8d22e2033b311ef1a5604903",
+      "mods": [
+        {
+          "id": "aquamirae",
+          "version": "7.2.0"
+        }
+      ],
+      "requires": {
+        "aquamirae": [
+          {
+            "modId": "minecraft",
+            "mandatory": true,
+            "versionRange": "[1.21.1, 1.22)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "neoforge",
+            "mandatory": true,
+            "versionRange": "[21.1.150,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "fragmentum",
+            "mandatory": true,
+            "versionRange": "[2.4.3,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "geckolib",
+            "mandatory": true,
+            "versionRange": "[4.8.0,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "aquamirae-7.2.1-floor",
+      "source": "https://github.com/ObscuriaLithium/aquamirae",
+      "license": "Obscuria Modding License (OML)",
+      "releaseId": "usuA98Eb",
+      "download": "https://cdn.modrinth.com/data/k23mNPhZ/versions/usuA98Eb/aquamirae-neoforge-1.21.1-7.2.1.jar",
+      "sha256": "12de9132c68395075fafd6f14463394f5502a755c45e241ef5b5caf872627f78",
+      "mods": [
+        {
+          "id": "aquamirae",
+          "version": "7.2.1"
+        }
+      ],
+      "requires": {
+        "aquamirae": [
+          {
+            "modId": "minecraft",
+            "mandatory": true,
+            "versionRange": "[1.21.1, 1.22)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "neoforge",
+            "mandatory": true,
+            "versionRange": "[21.1.150,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "fragmentum",
+            "mandatory": true,
+            "versionRange": "[2.4.4,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "geckolib",
+            "mandatory": true,
+            "versionRange": "[4.8.0,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "fragmentum-floor",
+      "source": "https://github.com/ObscuriaLithium/Fragmentum",
+      "license": "Obscuria Modding License (OML)",
+      "fileId": 8685715,
+      "maven": "curse.maven:fragmentum-neoforge-1123977:8685715",
+      "sha256": "a44b88b9b45cd5c61b7c173a33e9a99b20ec690a35d13dc22e2fa7ab2168db07",
+      "mods": [
+        {
+          "id": "fragmentum",
+          "version": "2.4.3"
+        }
+      ],
+      "requires": {
+        "fragmentum": [
+          {
+            "modId": "minecraft",
+            "mandatory": true,
+            "versionRange": "[1.21.1, 1.22)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.80,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "fragmentum-2.4.4-floor",
+      "source": "https://github.com/ObscuriaLithium/Fragmentum",
+      "license": "Obscuria Modding License (OML)",
+      "fileId": 8707553,
+      "maven": "curse.maven:fragmentum-neoforge-1123977:8707553",
+      "sha256": "66235e37ade940e2b289c53766ccd880858133ffbe9980924e02703f071a21af",
+      "mods": [
+        {
+          "id": "fragmentum",
+          "version": "2.4.4"
+        }
+      ],
+      "requires": {
+        "fragmentum": [
+          {
+            "modId": "minecraft",
+            "mandatory": true,
+            "versionRange": "[1.21.1, 1.22)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.80,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ftbquests-floor",
+      "source": "https://github.com/FTBTeam/FTB-Quests",
+      "license": "All Rights Reserved",
+      "fileId": 5635133,
+      "maven": "curse.maven:ftb-quests-forge-289412:5635133",
+      "sha256": "520f9d3977f45abaae9073948a2e2cd6ddb1385b79408f90fcc41a72bc5fba37",
+      "mods": [
+        {
+          "id": "ftbquests",
+          "version": "2101.1.0"
+        }
+      ],
+      "requires": {
+        "ftbquests": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.0,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "minecraft",
+            "type": "required",
+            "versionRange": "[1.21.1,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "architectury",
+            "type": "required",
+            "versionRange": "[13.0.6,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "ftblibrary",
+            "type": "required",
+            "versionRange": "[2101.1.1,)",
+            "ordering": "AFTER",
+            "side": "BOTH"
+          },
+          {
+            "modId": "ftbteams",
+            "type": "required",
+            "versionRange": "[2101.1.0,)",
+            "ordering": "AFTER",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ftblibrary-floor",
+      "source": "https://github.com/FTBTeam/FTB-Library",
+      "license": "All Rights Reserved",
+      "fileId": 5634888,
+      "maven": "curse.maven:ftb-library-forge-404465:5634888",
+      "sha256": "fdb4a806c09a3cbf704101db898de3a9baf0f07be91d369040d878fc47c7b978",
+      "mods": [
+        {
+          "id": "ftblibrary",
+          "version": "2101.1.1"
+        }
+      ],
+      "requires": {
+        "ftblibrary": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.0,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "minecraft",
+            "type": "required",
+            "versionRange": "[1.21.1,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "architectury",
+            "type": "required",
+            "versionRange": "[13.0.6,)",
+            "ordering": "AFTER",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ftbteams-floor",
+      "source": "https://github.com/FTBTeam/FTB-Teams",
+      "license": "All Rights Reserved",
+      "fileId": 5631446,
+      "maven": "curse.maven:ftb-teams-forge-404468:5631446",
+      "sha256": "eac01c501e96fb34a6896a19aa41dc30e3f4866b84747ab4e6e3e756b3174a2c",
+      "mods": [
+        {
+          "id": "ftbteams",
+          "version": "2101.1.0"
+        }
+      ],
+      "requires": {
+        "ftbteams": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.1.0,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "minecraft",
+            "type": "required",
+            "versionRange": "[1.21.1,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "architectury",
+            "type": "required",
+            "versionRange": "[13.0.1,)",
+            "ordering": "AFTER",
+            "side": "BOTH"
+          },
+          {
+            "modId": "ftblibrary",
+            "type": "required",
+            "versionRange": "[2101.1.0,)",
+            "ordering": "AFTER",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "architectury-floor",
+      "source": "https://github.com/architectury/architectury-api",
+      "license": "GNU LGPLv3",
+      "fileId": 5553800,
+      "maven": "curse.maven:architectury-api-419699:5553800",
+      "sha256": "8035a60887dc397a73b09bd787652a8a7250560ccb774f51e163872d4c248391",
+      "mods": [
+        {
+          "id": "architectury",
+          "version": "13.0.6"
+        }
+      ],
+      "requires": {
+        "architectury": [
+          {
+            "modId": "minecraft",
+            "type": "required",
+            "versionRange": "[1.21,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.0.110-beta,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "compass-floor",
+      "source": "https://github.com/MattCzyr/ExplorersCompass",
+      "license": "CC BY-NC-SA 4.0",
+      "fileId": 5696034,
+      "maven": "curse.maven:explorers-compass-491794:5696034",
+      "sha256": "7040a02604ce9ae09bb023dcf691df683c06e3f45f40b0ddce799d25bc182bde",
+      "mods": [
+        {
+          "id": "explorerscompass",
+          "version": "1.21.1-3.0.1-neoforge"
+        }
+      ],
+      "requires": {
+        "explorerscompass": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.0.0-beta,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "minecraft",
+            "type": "required",
+            "versionRange": "[1.21,1.21.1)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "edited-floor",
+      "source": "https://github.com/MCMostWolf/ExplorersCompassEdited",
+      "license": "CC BY-NC-SA 4.0",
+      "fileId": 6291626,
+      "maven": "curse.maven:explorers-compass-edited-1203888:6291626",
+      "sha256": "3a35cb72886f3780ab2bf81a0ee6c6d189cf35c3116ea83aa83122e3e5d576f6",
+      "mods": [
+        {
+          "id": "explorerscompass",
+          "version": "1.21.1-3.0.3-neoforge"
+        }
+      ],
+      "requires": {
+        "explorerscompass": [
+          {
+            "modId": "neoforge",
+            "type": "required",
+            "versionRange": "[21.0.0-beta,)",
+            "ordering": "NONE",
+            "side": "BOTH"
+          },
+          {
+            "modId": "minecraft",
+            "type": "required",
+            "versionRange": "[1.21,1.21.1)",
             "ordering": "NONE",
             "side": "BOTH"
           }

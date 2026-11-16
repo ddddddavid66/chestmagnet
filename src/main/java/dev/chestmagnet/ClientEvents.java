@@ -199,6 +199,7 @@ public final class ClientEvents {
 
   @EventBusSubscriber(
       modid = ChestMagnet.ID,
+      bus = EventBusSubscriber.Bus.MOD,
       value = Dist.CLIENT)
   public static class Setup {
     @SubscribeEvent
