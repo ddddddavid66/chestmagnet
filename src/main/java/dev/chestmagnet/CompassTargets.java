@@ -1,6 +1,5 @@
 package dev.chestmagnet;
 import java.util.*;
-import java.lang.reflect.*;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.ServerLevel;
@@ -26,29 +25,8 @@ public final class CompassTargets {
   public static void copy(ServerPlayer from,ServerPlayer to){if(from.getPersistentData().contains(KEY))to.getPersistentData().put(KEY,from.getPersistentData().getCompound(KEY).copy());}
   public static void login(ServerPlayer p){if(p.getPersistentData().getCompound(KEY).getString("State").equals("SEARCHING"))state(p,"CANCELLED");}
   public static void register(StructureTargetProvider provider){PROVIDERS.add(Objects.requireNonNull(provider));}
-  private static final class SnapshotApi {
-    static final Method METHOD = find();
-    private static Method find() {
-      String name = "com.chaosthedude.explorerscompass.api.StructureSearchSnapshot";
-      if (!CompassMixinSupport.present(name)) return null;
-      try {
-        var method = Class.forName(name, false, CompassTargets.class.getClassLoader())
-            .getMethod("getSnapshot", ServerPlayer.class);
-        return Modifier.isStatic(method.getModifiers()) && method.getReturnType() == CompoundTag.class ? method : null;
-      } catch (ReflectiveOperationException | LinkageError compatibleVersionMissing) {
-        return null;
-      }
-    }
-  }
-  public static boolean apiPresent(){return SnapshotApi.METHOD != null;}
   public static CompoundTag snapshot(ServerPlayer p){
     for(var provider:PROVIDERS){var t=provider.snapshot(p);if(t!=null)return t.copy();}
-    if (apiPresent()) try {
-      var result = (CompoundTag) SnapshotApi.METHOD.invoke(null, p);
-      if (result != null) return result.copy();
-    } catch (ReflectiveOperationException | LinkageError error) {
-      // 接口不匹配时只停用联动，附近转移仍能继续。
-    }
     if (legacyActive) {
       var old = p.getPersistentData().getCompound(KEY);
       if (old.getBoolean("VerifiedBridge128")) return old.copy();
@@ -149,15 +127,5 @@ public final class CompassTargets {
   public static Object field(Object o,String name){
     for(Class<?> c=o.getClass();c!=null;c=c.getSuperclass())try{var f=c.getDeclaredField(name);f.setAccessible(true);return f.get(o);}catch(NoSuchFieldException e){}catch(ReflectiveOperationException e){throw new IllegalStateException(e);}
     throw new IllegalStateException("指南针字段不匹配: "+name);
-  }
-  private static Object call(Object o,String name)throws ReflectiveOperationException{var m=o.getClass().getMethod(name);m.setAccessible(true);return m.invoke(o);}
-  public static void lifecycle(Object session,boolean terminal,String result){
-    if(apiPresent() || (boolean)field(session,"terminalSent"))return;
-    var p=(ServerPlayer)field(session,"player");var token=(UUID)field(session,"token");
-    if(!terminal){publish(p,token,"SEARCHING",null,null,null);return;}
-    var job=field(session,"job");
-    String state=result.equals("found")?(job.getClass().getSimpleName().equals("StructureSearch")?"FOUND":"NON_STRUCTURE"):result.equals("cancelled")?"CANCELLED":"NOT_FOUND";
-    try{if(state.equals("FOUND")){var c=call(job,"result");publish(p,token,state,(BlockPos)call(c,"position"),call(c,"key"),(ChunkPos)call(c,"chunk"));}else publish(p,token,state,null,null,null);}
-    catch(ReflectiveOperationException e){throw new IllegalStateException("指南针搜索结果接口不匹配",e);}
   }
 }

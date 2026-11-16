@@ -1,20 +1,26 @@
-param([Parameter(Mandatory=$true)][string]$PackDir)
+param([string[]]$Name = @('backpacks','core','rs','beyond','curios','ftbquests','lootr'))
 $ErrorActionPreference = 'Stop'
-$mods = Join-Path $PackDir 'mods'
-if (!(Test-Path -LiteralPath $mods -PathType Container)) { throw 'PackDir must contain a mods directory.' }
-$dest = Join-Path $PSScriptRoot 'libs'
-New-Item -ItemType Directory -Force -Path $dest | Out-Null
-$map = @{
- '*sophisticatedbackpacks-1.20.1-3.24.35.1675.jar'='backpacks-3.24.35.1675.jar'
- '*sophisticatedcore-1.20.1-1.3.21.1676.jar'='core-1.3.21.1676.jar'
- '*refinedstorage-1.12.4.jar'='rs-1.12.4.jar'
- '*refinedstorageaddons-0.10.0.jar'='rsaddons-0.10.0.jar'
- '*lootr-forge-1.20-0.7.35.94.jar'='lootr-0.7.35.94.jar'
- '*curios-forge-5.14.1+1.20.1.jar'='curios-5.14.1.jar'
+$lock = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'docs/neoforge-upstream-lock.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$dir = Join-Path $PSScriptRoot 'libs/neoforge'
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+if ($Name -contains 'all') { $Name = @($lock.dependencies.name) }
+foreach ($id in $Name) {
+    $pin = $lock.dependencies | Where-Object { $_.name -eq $id -and $_.sha256 }
+    if (-not $pin) { throw "No verified release for $id" }
+    $dest = Join-Path $dir "$id.jar"
+    if (Test-Path -LiteralPath $dest) {
+        if ((Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash -ieq $pin.sha256) { continue }
+        throw "Unexpected checksum for $dest; move it aside before fetching."
+    }
+    $tmp = "$dest.download"
+    $parts = $pin.maven -split ':'
+    $url = 'https://cursemaven.com/curse/maven/{0}/{1}/{0}-{1}.jar' -f $parts[1], $parts[2]
+    try {
+        Invoke-WebRequest -Uri $url -OutFile $tmp
+        if ((Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash -ine $pin.sha256) { throw "SHA-256 mismatch: $id" }
+        Move-Item -LiteralPath $tmp -Destination $dest
+        Write-Output "$id verified"
+    } finally {
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp }
+    }
 }
-foreach ($pattern in $map.Keys) {
- $found = @(Get-ChildItem -LiteralPath $mods -Filter $pattern -File)
- if ($found.Count -ne 1) { throw "Expected exactly one dependency matching $pattern" }
- Copy-Item -LiteralPath $found[0].FullName -Destination (Join-Path $dest $map[$pattern])
-}
-Write-Output 'Dependencies copied into libs. Original pack is unchanged.'

@@ -71,9 +71,9 @@ public final class Faults {
   }
 
   static void clearSkip(ItemStack m, int index) {
-    var l = Data.tag(m).getList("FaultSkipped", 10);
+    var l = Data.tag(m).getList("FaultSkipped", 10).copy();
     if (index >= 0 && index < l.size()) l.remove(index);
-    Data.tag(m).put("FaultSkipped", l);
+    Data.edit(m, data -> data.put("FaultSkipped", l));
   }
 
   static int count(ItemStack m, String key) {
@@ -81,7 +81,10 @@ public final class Faults {
   }
 
   static void quarantine(ItemStack m, String key, String why) {
-    var t = Data.tag(m);
+    Data.edit(m, data -> quarantine(data, key, why));
+  }
+
+  private static void quarantine(CompoundTag t, String key, String why) {
     if (!t.contains(key)) return;
     var q = t.getList("Quarantined", 10);
     var entry = new CompoundTag();
@@ -95,14 +98,15 @@ public final class Faults {
   }
 
   static void migrate(ServerPlayer p, ItemStack m) {
-    var t = Data.tag(m);
+    var t = Data.tag(m).copy();
     boolean old = t.getBoolean("PendingUncertain") || t.getBoolean("RecoveryUncertain");
     if (!old) return;
-    quarantine(m, "PendingLoot", "旧版缺少结算上下文，封存而不自动重放");
-    quarantine(m, "Recovery", "旧版缺少结算上下文，封存而不自动重放");
+    quarantine(t, "PendingLoot", "旧版缺少结算上下文，封存而不自动重放");
+    quarantine(t, "Recovery", "旧版缺少结算上下文，封存而不自动重放");
     t.remove("PendingUncertain");
     t.remove("RecoveryUncertain");
     t.putBoolean("Enabled", false);
+    Data.replace(m, t);
     context(p, m, null, "旧版缓存迁移");
     report(p, m, new IllegalStateException("旧版不确定缓存已封存；未补发，可再次开启继续其他来源"));
     clearContext();
@@ -111,7 +115,7 @@ public final class Faults {
   static void report(ServerPlayer p, ItemStack m, Throwable ex) {
     var c = CURRENT.get();
     var id = UUID.randomUUID();
-    var t = Data.tag(m);
+    var t = Data.tag(m).copy();
     if ((c == null || c.ref == null)
         && t.contains("PendingOrigin")
         && t.getCompound("PendingOrigin")
@@ -135,9 +139,9 @@ public final class Faults {
       t.put("FaultSkipped", list);
     }
     // 实际接收/回退中断的栈不能再自动投递；其他已确定产物继续保留。
-    if (t.getBoolean("RecoveryUncertain")) quarantine(m, "Recovery", "实际提取、接收或回退结果不确定");
+    if (t.getBoolean("RecoveryUncertain")) quarantine(t, "Recovery", "实际提取、接收或回退结果不确定");
     t.remove("RecoveryUncertain");
-    quarantine(m, "OperationEvidence", "提取操作中断前证据，仅供诊断，不是补发凭证");
+    quarantine(t, "OperationEvidence", "提取操作中断前证据，仅供诊断，不是补发凭证");
     String key = STRUCTURE.get();
     if (key != null) {
       var counts = t.getCompound("FaultCounts");
@@ -148,6 +152,7 @@ public final class Faults {
         p.sendSystemMessage(
             Component.literal("当前结构已多次出错，建议放弃在此结构使用磁铁；仍可继续并跳过错误来源").withStyle(ChatFormatting.RED));
     }
+    Data.replace(m, t);
     StringWriter sw = new StringWriter();
     ex.printStackTrace(new PrintWriter(sw));
     String text =

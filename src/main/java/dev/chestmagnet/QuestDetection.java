@@ -6,11 +6,11 @@ import java.util.Map;
 import java.util.UUID;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
-import net.minecraftforge.fml.ModList;
+import net.neoforged.fml.ModList;
 import org.slf4j.LoggerFactory;
 
 /** 在收取之后才借用剩余预算，状态不保存库存引用。 */
-@net.minecraftforge.fml.common.Mod.EventBusSubscriber(modid = ChestMagnet.ID)
+@net.neoforged.fml.common.EventBusSubscriber(modid = ChestMagnet.ID)
 public final class QuestDetection {
   private static final Map<UUID, Scan> SCANS = new HashMap<>();
   private static final long SLICE_NANOS = 500_000L;
@@ -78,9 +78,9 @@ public final class QuestDetection {
     return false;
   }
 
-  @net.minecraftforge.eventbus.api.SubscribeEvent
-  public static void tagsReload(net.minecraftforge.event.TagsUpdatedEvent event) {
-    if (event.getUpdateCause() == net.minecraftforge.event.TagsUpdatedEvent.UpdateCause.SERVER_DATA_LOAD) clear();
+  @net.neoforged.bus.api.SubscribeEvent
+  public static void tagsReload(net.neoforged.neoforge.event.TagsUpdatedEvent event) {
+    if (event.getUpdateCause() == net.neoforged.neoforge.event.TagsUpdatedEvent.UpdateCause.SERVER_DATA_LOAD) clear();
   }
 
   static void wake(ServerPlayer player) {

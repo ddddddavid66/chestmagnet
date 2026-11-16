@@ -9,3 +9,5 @@ dist/
 
 backups/
 tools/
+
+__pycache__/

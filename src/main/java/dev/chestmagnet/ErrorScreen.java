@@ -167,8 +167,8 @@ public final class ErrorScreen extends Screen {
   private void clampScroll() { scroll = Math.max(0, Math.min(Math.max(0, lines.size() - visibleLines()), scroll)); }
 
   @Override
-  public void render(GuiGraphics g, int mx, int my, float partial) {
-    renderBackground(g);
+  public void renderBackground(GuiGraphics g, int mx, int my, float partial) {
+    super.renderBackground(g, mx, my, partial);
     g.fill(x - 2, y - 2, x + w + 2, y + h + 2, 0xffb18c4d);
     g.fill(x, y, x + w, y + h, 0xff20242a);
     g.drawString(font, title, x + 10, y + 10, 0xffe8bd68, false);
@@ -189,7 +189,6 @@ public final class ErrorScreen extends Screen {
         g.fill(x + w - 12, bodyTop + 4 + offset, x + w - 10, bodyTop + 4 + offset + thumb, 0xffb18c4d);
       }
     } else renderSkipped(g);
-    super.render(g, mx, my, partial);
   }
 
   private void renderSkipped(GuiGraphics g) {
@@ -209,9 +208,9 @@ public final class ErrorScreen extends Screen {
   }
 
   @Override
-  public boolean mouseScrolled(double mx, double my, double delta) {
+  public boolean mouseScrolled(double mx, double my, double horizontal, double delta) {
     if (tab == 0) { scroll -= (int) Math.signum(delta) * 3; clampScroll(); return true; }
-    return super.mouseScrolled(mx, my, delta);
+    return super.mouseScrolled(mx, my, horizontal, delta);
   }
 
   @Override

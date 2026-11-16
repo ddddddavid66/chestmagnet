@@ -2,8 +2,8 @@ package dev.chestmagnet;
 
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
-import net.minecraftforge.fml.ModList;
-import net.minecraftforge.items.*;
+import net.neoforged.fml.ModList;
+import net.neoforged.neoforge.items.*;
 
 public final class Destinations {
   public interface Target {
@@ -71,7 +71,7 @@ public final class Destinations {
           for (int i = 0; i < 36 && !remaining.isEmpty(); i++) {
             var current = p.getInventory().getItem(i);
             if ((pass == 0 && current.isEmpty()) || (pass == 1 && !current.isEmpty())) continue;
-            if (!current.isEmpty() && !ItemStack.isSameItemSameTags(current, remaining)) continue;
+            if (!current.isEmpty() && !ItemStack.isSameItemSameComponents(current, remaining)) continue;
             int room =
                 current.isEmpty()
                     ? remaining.getMaxStackSize()

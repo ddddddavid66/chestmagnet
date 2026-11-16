@@ -1,0 +1,26 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+[[mods]]
+modId="chestmagnet"
+version="1.2.8"
+displayName="宝箱磁铁"
+displayURL="https://github.com/ddddddavid66/chestmagnet"
+description="自动收取储物来源与展示框。Minecraft 1.21.1 NeoForge 移植。"
+
+[[mixins]]
+config="chestmagnet.mixins.json"
+
+[[dependencies.chestmagnet]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.230,21.2)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.chestmagnet]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1,1.21.2)"
+ordering="NONE"
+side="BOTH"

@@ -1,90 +1,39 @@
 package dev.chestmagnet;
 
-import java.util.*;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.decoration.ItemFrame;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity;
-import noobanidus.mods.lootr.api.blockentity.ILootBlockEntity;
-import noobanidus.mods.lootr.block.entities.LootrInventoryBlockEntity;
-import noobanidus.mods.lootr.data.*;
-import noobanidus.mods.lootr.entity.LootrChestMinecartEntity;
-import noobanidus.mods.lootr.util.ChestUtil;
+import noobanidus.mods.lootr.common.api.LootrAPI;
+import noobanidus.mods.lootr.common.api.data.ILootrInfoProvider;
+import noobanidus.mods.lootr.common.api.data.inventory.ILootrInventory;
 
 public final class LootrCompat {
-  private record Key(UUID player, UUID source) {}
+  private LootrCompat() {}
 
-  private static final Map<Key, Boolean> SEEN = new HashMap<>();
-
-  private static final class MenuHook {
-    static final boolean READY = verify();
-
-    private static boolean verify() {
-      try {
-        Class.forName("noobanidus.mods.lootr.util.ChestUtil", false,
-            LootrCompat.class.getClassLoader());
-        if (LootrBridge.hasMenuHook()) return true;
-      } catch (ClassNotFoundException | LinkageError ignored) {
-        // 不调用原生打开入口，也不降级读取共享库存。
-      }
-      org.slf4j.LoggerFactory.getLogger("chestmagnet").warn("Lootr 菜单钩子不兼容，已停用 Lootr 收取");
-      return false;
-    }
+  private static ILootrInfoProvider provider(Object source) {
+    if (source instanceof ILootrInfoProvider known) return known;
+    if (source instanceof BlockEntity block) return LootrAPI.resolveBlockEntity(block);
+    if (source instanceof Entity entity) return LootrAPI.resolveEntity(entity);
+    return null;
   }
 
   static boolean supports(Object source) {
-    return source instanceof LootrChestMinecartEntity
-        || source instanceof RandomizableContainerBlockEntity && source instanceof ILootBlockEntity;
+    return provider(source) != null;
   }
 
-  public static void clear() {
-    SEEN.clear();
-  }
-
-  public static Container inventory(ServerPlayer p, Object source) {
-    if (!MenuHook.READY) return null;
-    var level = p.serverLevel();
-    boolean cart = source instanceof LootrChestMinecartEntity;
-    UUID id =
-        cart
-            ? ((LootrChestMinecartEntity) source).getUUID()
-            : ((ILootBlockEntity) source).getTileId();
-    if (id == null || DataStorage.isDecayed(id)) return null;
-    var key = new Key(p.getUUID(), id);
-    boolean refresh = DataStorage.isRefreshed(id);
-    // 首次或刷新才走完整生命周期，避免统计、通知与音效每 tick 重复触发。
-    if (!SEEN.containsKey(key) || refresh) {
-      Container found =
-          LootrBridge.capture(
-              p,
-              () -> {
-                if (cart) ChestUtil.handleLootCart(level, (LootrChestMinecartEntity) source, p);
-                else {
-                  var be = (BlockEntity) source;
-                  if (be instanceof LootrInventoryBlockEntity)
-                    ChestUtil.handleLootInventory(
-                        be.getBlockState().getBlock(), level, be.getBlockPos(), p);
-                  else
-                    ChestUtil.handleLootChest(
-                        be.getBlockState().getBlock(), level, be.getBlockPos(), p);
-                }
-              });
-      if (found instanceof SpecialChestInventory inv
-          && (cart ? inv.getEntity(level) == source : id.equals(inv.getTileId()))) {
-        SEEN.put(key, true);
-        return found;
-      }
-      return null;
+  public static Container inventory(ServerPlayer player, Object source) {
+    if (source instanceof ItemFrame) return null;
+    if (!LootrAPI.isReady() || LootrAPI.isDisabled()) return null;
+    var provider = provider(source);
+    if (provider == null || !provider.canPlayerOpen(player)
+        || (provider.canDecay() && LootrAPI.isDecayed(provider))) return null;
+    if (provider.hasServerOpened(player) && !(provider.canRefresh() && LootrAPI.isRefreshed(provider))) {
+      return LootrAPI.getInventory(provider, player);
     }
-    if (cart) {
-      var c = (LootrChestMinecartEntity) source;
-      return DataStorage.getInventory(level, c, p, c::addLoot);
-    }
-    var be = (RandomizableContainerBlockEntity) source;
-    var tile = (ILootBlockEntity) source;
-    if (be instanceof LootrInventoryBlockEntity special)
-      return DataStorage.getInventory(
-          level, id, special.getCustomInventory(), p, be.getBlockPos(), be);
-    return DataStorage.getInventory(level, id, be.getBlockPos(), p, be, tile::unpackLootTable);
+    // 原生初始化个人战利品，并记录已开过；只拦截这一次的个人菜单。
+    var menu = LootrOpenScope.openWithoutMenu(player, () -> LootrAPI.handleProviderOpen(provider, player));
+    return menu instanceof ILootrInventory inventory ? inventory : null;
   }
 }

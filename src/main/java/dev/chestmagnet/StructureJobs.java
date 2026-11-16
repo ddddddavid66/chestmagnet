@@ -43,7 +43,6 @@ public final class StructureJobs {
     int slot, done, total, found, processed, loadRequests;
     int skipped, isolatedBefore;
     boolean automatic, autoTriggered, preparing, waitingTarget;
-    ChapelPedestals.Layout chapel = ChapelPedestals.Layout.EMPTY;
     long waitStartedNanos, nextTargetCheck;
     ItemStack waitSample = ItemStack.EMPTY;
     final Set<String> skippedKeys = new HashSet<>();
@@ -184,8 +183,6 @@ public final class StructureJobs {
     if (st == null || !st.isValid() || st.getPieces().isEmpty())
       throw new IllegalArgumentException("无法取得可靠建筑布局，请靠近目标或重新搜索");
     j.body = bounds(st);
-    j.chapel = j.autoTriggered && ChapelPedestals.CHURCH.equals(j.result.getString("Structure"))
-        ? ChapelPedestals.from(st) : ChapelPedestals.Layout.EMPTY;
     int m = Config.STRUCTURE_MARGIN.get();
     j.region =
         new BoundingBox(
@@ -373,7 +370,7 @@ public final class StructureJobs {
       return;
     }
     if (req.action() == 23) {
-      Data.tag(held(p)).putInt("Mode", Data.normalizeMode(req.value()));
+      Data.edit(held(p), data -> data.putInt("Mode", Data.normalizeMode(req.value())));
       send(p, j, false);
       return;
     }
@@ -392,7 +389,6 @@ public final class StructureJobs {
     if (j.complete) {
       // 已完成任务从确认页重扫属于手动操作，不继承原来的自动基座权限。
       j.autoTriggered = false;
-      j.chapel = ChapelPedestals.Layout.EMPTY;
       j.complete = j.running = false;
       j.done = j.found = j.loadRequests = j.processed = j.skipped = 0;
       j.seen.clear(); j.skippedKeys.clear(); j.markers.clear(); j.waiting.clear();
@@ -420,7 +416,7 @@ public final class StructureJobs {
     j.waitStartedNanos = 0;
     j.waitSample = ItemStack.EMPTY;
     j.status = "加载并收取中";
-    Data.tag(magnet).putBoolean("Enabled", true);
+    Data.edit(magnet, data -> data.putBoolean("Enabled", true));
     AutoStructures.allow(p, j.result);
     send(p, j, false);
   }
@@ -665,10 +661,7 @@ public final class StructureJobs {
   static boolean doubleReady(ServerPlayer p, Job j, Object o) {
     if (Sources.personalLoot(o)) return true;
     BlockPos other;
-    if (o instanceof net.minecraft.world.level.block.entity.BlockEntity be
-        && SourceExtras.blockId(p, be.getBlockPos()).equals("tetra:forged_container"))
-      other = SourceExtras.tetraOther(p, be.getBlockPos());
-    else if (o instanceof net.minecraft.world.level.block.entity.ChestBlockEntity chest) {
+    if (o instanceof net.minecraft.world.level.block.entity.ChestBlockEntity chest) {
       var state = chest.getBlockState();
       if (!state.hasProperty(net.minecraft.world.level.block.ChestBlock.TYPE)
           || state.getValue(net.minecraft.world.level.block.ChestBlock.TYPE)
@@ -730,8 +723,7 @@ public final class StructureJobs {
       var at = j.blockEntities.get(j.blockCursor++);
       if (!contains(j, at)) continue;
       var be = j.level.getBlockEntity(at);
-      if (Sources.eligible(be) || Data.autoStructure(magnet) && be != null
-          && j.chapel.rewards().containsKey(at) && j.chapel.inventory(j.level, be) != null)
+      if (Sources.eligible(be))
         addSource(p, j, magnet, Sources.of(be), at);
     }
     while (j.entityCursor < j.entityIds.size() && visited < budget && System.nanoTime() < deadline) {
@@ -780,12 +772,12 @@ public final class StructureJobs {
     }
     Faults.context(p, magnet, null, "接收待处理产物");
     boolean hadPending = LootCapture.pending(magnet);
-    int pendingBefore = pendingCount(magnet);
-    if (!LootCapture.drain(magnet, target, deadline)) {
-      j.processed += Math.max(0, pendingBefore - pendingCount(magnet));
+    int pendingBefore = pendingCount(p, magnet);
+    if (!LootCapture.drain(magnet, target, deadline, p)) {
+      j.processed += Math.max(0, pendingBefore - pendingCount(p, magnet));
       if (System.nanoTime() >= deadline) return;
       var first = Data.tag(magnet).getList("PendingLoot", 10).getCompound(0);
-      var sample = ItemStack.of(first);
+      var sample = StackData.read(p.registryAccess(), first);
       if (!sample.isEmpty() && target.insert(sample, true).getCount() < sample.getCount()) return;
       pauseTarget(p, j, "开箱产物待接收 · " + target.reason(), sample);
       return;
@@ -827,15 +819,11 @@ public final class StructureJobs {
             || ref.members(p).stream().anyMatch(at -> !contains(j, at))) {
           j.sources.remove(); j.slot = 0; continue;
         }
-        boolean pedestal = ref.pos() != null && j.chapel.rewards().containsKey(ref.pos());
-        var pedestalInventory = pedestal && Data.autoStructure(magnet)
-                && o instanceof net.minecraft.world.level.block.entity.BlockEntity be
-            ? j.chapel.inventory(j.level, be) : null;
-        if (pedestal ? pedestalInventory == null : !Sources.eligible(o)) { j.sources.remove(); j.slot = 0; continue; }
+        if (!Sources.eligible(o)) { j.sources.remove(); j.slot = 0; continue; }
         if (!doubleReady(p, j, o)) return;
         if (target.unavailable()) { pauseTarget(p, j, target.reason()); return; }
         if (target.loops(ref, p)) { j.sources.remove(); j.slot = 0; continue; }
-        var inv = pedestal ? pedestalInventory : Sources.inventory(p, o, magnet);
+        var inv = Sources.inventory(p, o, magnet);
         if (inv == null) { j.sources.remove(); j.slot = 0; continue; }
         // 开锁/粉碎已生成的奖励下tick统一交付，不能同tick叠加另一份栈预算。
         if (LootCapture.pending(magnet)) { j.status = "开箱产物待处理"; return; }
@@ -863,7 +851,7 @@ public final class StructureJobs {
           pauseTarget(p, j, target.reason(), sample); return;
         }
         j.waitingTarget = false; j.waitStartedNanos = 0;
-        int n = Transfer.move(inv, j.slot, accepted, target, magnet);
+        int n = Transfer.move(inv, j.slot, accepted, target, magnet, p.registryAccess());
         j.processed += n;
         if (n > 0) moved++; else j.slot++;
         if (Data.tag(magnet).contains("Recovery")) {
@@ -902,10 +890,10 @@ public final class StructureJobs {
     }
   }
 
-  static int pendingCount(ItemStack magnet) {
+  static int pendingCount(ServerPlayer p, ItemStack magnet) {
     int count = 0;
     for (var entry : Data.tag(magnet).getList("PendingLoot", 10))
-      count += ItemStack.of((CompoundTag) entry).getCount();
+      count += StackData.read(p.registryAccess(), (CompoundTag) entry).getCount();
     return count;
   }
 

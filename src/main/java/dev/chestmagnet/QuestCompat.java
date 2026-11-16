@@ -4,7 +4,7 @@ import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
 import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.quest.task.ItemTask;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.fml.ModList;
+import net.neoforged.fml.ModList;
 
 /** 只读当前持有量；不走 FTB 的扣物品、合成或拾取入口。 */
 final class QuestCompat {
@@ -56,7 +56,7 @@ final class QuestCompat {
       scan.team = team;
       scan.sample = item.getItemStack();
       scan.destination = 0;
-      scan.match = QuestMatch.compile(item);
+      scan.match = QuestMatch.compile(item, player.registryAccess());
     }
     if (scan.match == null) { scan.advance(); return; }
     while (scan.destination < MODES.length

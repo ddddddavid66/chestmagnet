@@ -10,57 +10,21 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraft.core.registries.BuiltInRegistries;
 
 /** 原生匹配为最终判定；候选物品集合只缩小网络索引的查询范围。 */
 record QuestMatch(Set<Item> candidates, Predicate<ItemStack> matches) {
-  static QuestMatch compile(ItemTask task) {
+  static QuestMatch compile(ItemTask task, net.minecraft.core.HolderLookup.Provider registries) {
     var key = task.getItemStack();
-    Set<Item> ids = new LinkedHashSet<>();
-    if (!expand(key, ids, 0, new int[]{0}) || ids.isEmpty()) return null;
-    if (!id(key, "tetra", "scroll_rolled") || !key.hasTag()) return new QuestMatch(ids, task);
-    var config = new CompoundTag();
-    task.writeData(config);
-    if (config.contains("match_nbt") || !key.getTag().contains("BlockEntityTag"))
-      return new QuestMatch(ids, task);
-    var required = ScrollIdentity.read(key);
-    return new QuestMatch(ids, actual -> task.test(actual) && ScrollIdentity.contains(required, ScrollIdentity.read(actual)));
+    if (key.isEmpty()) return null;
+    if (!ItemMatchingSystem.INSTANCE.isItemFilter(key)) return new QuestMatch(Set.of(key.getItem()), task);
+    // 只接受已知过滤系统的候选展开；匹配仍由 FTB 处理，不枚举网络仓库。
+    var adapter = ItemMatchingSystem.INSTANCE.getFilterAdapter(key).orElse(null);
+    if (adapter == null || !adapter.getClass().getName().startsWith("dev.ftb.mods.ftbquests.")) return null;
+    var samples = ItemMatchingSystem.INSTANCE.getAllMatchingStacks(key, registries);
+    if (samples.isEmpty() || samples.size() > 2048) return null;
+    Set<Item> candidates = new LinkedHashSet<>();
+    for (var sample : samples) if (!sample.isEmpty()) candidates.add(sample.getItem());
+    return candidates.isEmpty() ? null : new QuestMatch(candidates, task);
   }
-
-  private static boolean expand(ItemStack key, Set<Item> ids, int depth, int[] nodes) {
-    if (depth > 12 || ++nodes[0] > 256 || key.isEmpty()) return false;
-    if (!ItemMatchingSystem.INSTANCE.isItemFilter(key)) {
-      ids.add(key.getItem());
-      return true;
-    }
-    var tag = key.getTag();
-    if (tag == null) return false;
-    if (id(key, "itemfilters", "tag")) {
-      var name = ResourceLocation.tryParse(tag.getString("value"));
-      var tags = ForgeRegistries.ITEMS.tags();
-      if (name == null || tags == null || name.getPath().isEmpty()) return false;
-      var members = tags.getTag(TagKey.create(Registries.ITEM, name));
-      if (members.size() > 2048) return false;
-      for (var member : members) {
-        ids.add(member);
-        if (ids.size() > 2048) return false;
-      }
-      return true;
-    }
-    if (!id(key, "itemfilters", "or")) return false;
-    var children = tag.getList("items", Tag.TAG_COMPOUND);
-    if (children.isEmpty() || children.size() > 256) return false;
-    for (int i = 0; i < children.size(); i++) {
-      // OR 可能包含其他过滤器；无法覆盖的分支不拿不完整候选集合冒充完整匹配。
-      var child = ItemStack.of(children.getCompound(i));
-      if (!child.isEmpty() && !expand(child, ids, depth + 1, nodes)) return false;
-    }
-    return true;
-  }
-
-  private static boolean id(ItemStack key, String namespace, String path) {
-    var id = ForgeRegistries.ITEMS.getKey(key.getItem());
-    return id != null && id.getNamespace().equals(namespace) && id.getPath().equals(path);
-  }
-
 }

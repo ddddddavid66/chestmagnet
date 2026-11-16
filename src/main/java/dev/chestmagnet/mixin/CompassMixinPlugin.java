@@ -5,7 +5,7 @@ import org.objectweb.asm.tree.MethodInsnNode;
 import org.spongepowered.asm.mixin.extensibility.*;
 import org.spongepowered.asm.service.MixinService;
 import dev.chestmagnet.CompassTargets;
-import dev.chestmagnet.LootrBridge;
+import dev.chestmagnet.LootrOpenScope;
 public final class CompassMixinPlugin implements IMixinConfigPlugin {
  public void onLoad(String p){} public String getRefMapperConfig(){return null;}
  private static final String PREFIX = "com.chaosthedude.explorerscompass.";
@@ -24,16 +24,15 @@ public final class CompassMixinPlugin implements IMixinConfigPlugin {
  private static final String CONFIRM = "(" + CHUNK + STRUCTURE + "I)";
  private static final String ORIGINAL_SUCCESS = "(" + POS + STRUCTURE + ")V";
  private static final String ENHANCE_SUCCESS = "(" + PLAYER + STACK + KEY + "ZIII" + KEY + "Ljava/util/List;IZ)V";
- private enum Adapter { API, UNIFIED, ORIGINAL, ENHANCE_POS, ENHANCE_PAIR, UNSUPPORTED }
+ private enum Adapter { ORIGINAL, ENHANCE_POS, ENHANCE_PAIR, UNSUPPORTED }
  private Adapter adapter;
 
  public boolean shouldApplyMixin(String target, String mixin) {
-   if (mixin.endsWith(".LootrMenuMixin")) return lootrMenuShape(target);
+   if (mixin.endsWith(".LootrOpenMixin")) return hasLootrMenuHook(target);
    if (!mixin.contains("Compass")) return true;
    if (adapter == null) adapter = compassAdapter();
    var name = mixin.substring(mixin.lastIndexOf('.') + 1);
    return switch (adapter) {
-     case UNIFIED -> name.equals("UnifiedCompassMixin");
      case ORIGINAL -> name.startsWith("OriginalCompass");
      case ENHANCE_POS, ENHANCE_PAIR -> switch (name) {
        case "EnhanceCompassItemMixin", "EnhanceCompassContextMixin", "EnhanceCompassWorkerMixin" -> true;
@@ -46,13 +45,6 @@ public final class CompassMixinPlugin implements IMixinConfigPlugin {
  }
 
  private static Adapter compassAdapter() {
-   var api = node("api.StructureSearchSnapshot");
-   if (method(api, "getSnapshot", "(L" + M + "server/level/ServerPlayer;)L" + M + "nbt/CompoundTag;"))
-     return Adapter.API;
-   var unified = node("unified.search.SearchService");
-   if (unified != null && unified.methods.stream().anyMatch(m -> m.name.equals("lifecycle")
-       && m.desc.matches("\\(L[^;]+;ZLjava/lang/String;Ljava/lang/String;\\)V"))) return Adapter.UNIFIED;
-
    var item = node("items.ExplorersCompassItem");
    var worker = node("worker.StructureSearchWorker");
    if (!method(worker, "getStructureGeneratingAt", "(" + CHUNK + ")" + PAIR)) return Adapter.UNSUPPORTED;
@@ -78,7 +70,8 @@ public final class CompassMixinPlugin implements IMixinConfigPlugin {
      return Adapter.UNSUPPORTED;
    }
 
-   if (method(item, "setSearching", "(" + STACK + KEY + PLAYER + ")V")
+   if ((method(item, "setSearching", "(" + STACK + KEY + PLAYER + ")V")
+       ^ method(item, "setSearching", "(" + STACK + KEY + "Z" + PLAYER + ")V"))
        && method(item, "setNotFound", "(" + STACK + "II)V")
        && method(item, "setInactive", "(" + STACK + PLAYER + ")V")
        && method(item, "setState", "(" + STACK + POS + "L" + C + "util/CompassState;" + PLAYER + ")V")
@@ -89,9 +82,30 @@ public final class CompassMixinPlugin implements IMixinConfigPlugin {
    return Adapter.UNSUPPORTED;
  }
 
- private static ClassNode node(String suffix) {
+ private static boolean hasLootrMenuHook(String owner) {
+   var clazz = loadClassNode(owner);
+   if (clazz == null) return false;
+   String prefix = "(Lnoobanidus/mods/lootr/common/api/data/ILootrInfoProvider;"
+       + "Lnet/minecraft/server/level/ServerPlayer;Lnoobanidus/mods/lootr/common/api/MenuBuilder;";
+   int matches = 0;
+   for (var method : clazz.methods) {
+     if (!method.name.equals("handleProviderOpen")
+         || !(method.desc.equals(prefix + ")V") || method.desc.equals(prefix + "Z)V"))) continue;
+     int invocations = 0;
+     for (var instruction : method.instructions)
+       if (instruction instanceof MethodInsnNode invoke
+           && invoke.owner.equals("net/minecraft/server/level/ServerPlayer") && invoke.name.equals("openMenu")
+           && invoke.desc.equals("(Lnet/minecraft/world/MenuProvider;)Ljava/util/OptionalInt;")) invocations++;
+     if (invocations == 2) matches++;
+   }
+   return matches == 1;
+ }
+
+ private static ClassNode node(String suffix) { return loadClassNode(PREFIX + suffix); }
+
+ private static ClassNode loadClassNode(String name) {
    try {
-     return MixinService.getService().getBytecodeProvider().getClassNode(PREFIX + suffix);
+     return MixinService.getService().getBytecodeProvider().getClassNode(name);
    } catch (ClassNotFoundException | java.io.IOException | RuntimeException | LinkageError ignored) {
      return null;
    }
@@ -115,29 +129,10 @@ public final class CompassMixinPlugin implements IMixinConfigPlugin {
    return false;
  }
 
- private static boolean lootrMenuShape(String target) {
-   try {
-     var klass = MixinService.getService().getBytecodeProvider().getClassNode(target);
-     var found = new HashSet<String>();
-     for (var method : klass.methods) {
-       if (!Set.of("handleLootChest", "handleLootInventory", "handleLootCart").contains(method.name))
-         continue;
-       int calls = 0;
-       for (var instruction : method.instructions) {
-         if (instruction instanceof MethodInsnNode call
-             && call.owner.equals("net/minecraft/world/entity/player/Player")
-             && call.desc.equals("(Lnet/minecraft/world/MenuProvider;)Ljava/util/OptionalInt;")
-             && (call.name.equals("openMenu") || call.name.equals("m_5893_"))) calls++;
-       }
-       if (calls != 2 || !found.add(method.name)) return false;
-     }
-     return found.size() == 3;
-   } catch (ClassNotFoundException | java.io.IOException | RuntimeException | LinkageError e) {
-     return false;
-   }
- }
  public void acceptTargets(Set<String>a,Set<String>b){} public List<String> getMixins(){return null;}
- public void preApply(String t,ClassNode n,String m,IMixinInfo i){} public void postApply(String t,ClassNode n,String m,IMixinInfo i){if(m.endsWith(".LootrMenuMixin")) LootrBridge.menuHookApplied();
-   else if (m.endsWith(".OriginalCompassItemMixin") || m.endsWith(".EnhanceCompassItemMixin")
-       || m.endsWith(".UnifiedCompassMixin")) CompassTargets.legacyAdapterApplied();}
+ public void preApply(String t,ClassNode n,String m,IMixinInfo i){} public void postApply(String t,ClassNode n,String m,IMixinInfo i) {
+   if (m.endsWith(".LootrOpenMixin")) LootrOpenScope.installed();
+   if (m.endsWith(".OriginalCompassItemMixin") || m.endsWith(".EnhanceCompassItemMixin"))
+     CompassTargets.legacyAdapterApplied();
+ }
 }

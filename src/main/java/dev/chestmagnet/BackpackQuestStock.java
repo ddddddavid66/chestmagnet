@@ -3,7 +3,7 @@ package dev.chestmagnet;
 import java.util.*;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
-import net.p3pp3rf1y.sophisticatedbackpacks.api.CapabilityBackpackWrapper;
+import net.p3pp3rf1y.sophisticatedbackpacks.backpack.wrapper.BackpackWrapper;
 import net.p3pp3rf1y.sophisticatedbackpacks.backpack.BackpackStorage;
 import net.p3pp3rf1y.sophisticatedbackpacks.upgrades.inception.InceptionUpgradeWrapper;
 import net.p3pp3rf1y.sophisticatedcore.api.IStorageWrapper;
@@ -69,7 +69,7 @@ final class BackpackQuestStock implements QuestStock.Reader {
       if (bag.slot >= bag.slots) { bagIndex++; continue; }
       var stack = inventory.getStackInSlot(bag.slot++);
       if (stack.isEmpty()) continue;
-      if (bag.inception) stack.getCapability(CapabilityBackpackWrapper.getCapabilityInstance())
+      if (bag.inception) BackpackWrapper.fromExistingData(stack)
           .ifPresent(w -> w.getContentsUuid().ifPresent(id -> add(w, id)));
       if (match.candidates().contains(stack.getItem()) && match.matches().test(stack))
         amount += Math.min(limit - amount, stack.getCount());

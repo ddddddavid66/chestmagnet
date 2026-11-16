@@ -8,8 +8,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.*;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
-import net.minecraftforge.fml.ModList;
-import net.minecraftforge.registries.ForgeRegistries;
+import net.neoforged.fml.ModList;
+import net.minecraft.core.registries.BuiltInRegistries;
 
 /** 每玩家的接收历史，不是当前库存，也不是转移事务的一部分。 */
 final class RecentItems {
@@ -25,7 +25,7 @@ final class RecentItems {
   private static boolean reportedFailure;
 
   private static List<TagKey<Item>> tags(String... names) {
-    return Arrays.stream(names).map(name -> TagKey.create(Registries.ITEM, new ResourceLocation("forge", name))).toList();
+    return Arrays.stream(names).map(name -> TagKey.create(Registries.ITEM, ResourceLocation.fromNamespaceAndPath("forge", name))).toList();
   }
 
   static Destinations.Target track(ServerPlayer player, int mode, Destinations.Target target) {
@@ -60,17 +60,17 @@ final class RecentItems {
   }
 
   private static CompoundTag describe(ServerPlayer player, ItemStack stack) {
-    var id = ForgeRegistries.ITEMS.getKey(stack.getItem());
+    var id = BuiltInRegistries.ITEM.getKey(stack.getItem());
     if (id == null) return null;
     var display = new CompoundTag();
     display.putString("Item", id.toString());
     display.putInt("Category", category(player, stack));
-    if (stack.hasCustomHoverName())
+    if (stack.has(net.minecraft.core.component.DataComponents.CUSTOM_NAME))
       display.putString("Name", clip(stack.getHoverName().getString(), 128));
     if (stack.isDamageableItem()) display.putInt("Damage", stack.getDamageValue());
     var enchantments = new ListTag();
-    for (var entry : EnchantmentHelper.getEnchantments(stack).entrySet()) {
-      var enchant = ForgeRegistries.ENCHANTMENTS.getKey(entry.getKey());
+    for (var entry : EnchantmentHelper.getEnchantmentsForCrafting(stack).entrySet()) {
+      var enchant = entry.getKey().unwrapKey().map(net.minecraft.resources.ResourceKey::location).orElse(null);
       if (enchant != null && enchantments.size() < 16) {
         var tag = new CompoundTag();
         tag.putString("id", enchant.toString());
@@ -79,20 +79,16 @@ final class RecentItems {
       }
     }
     if (!enchantments.isEmpty()) display.put("Enchants", enchantments);
-    if (id.getNamespace().equals("tetra") && id.getPath().equals("scroll_rolled")) {
-      var scrolls = ScrollIdentity.read(stack);
-      if (!scrolls.isEmpty()) display.putString("Variant", clip(scrolls.get(0).key(), 96));
-    }
-    // 仅本地合并键；真实标签和能力不保存、不发送。
-    if (stack.hasTag()) display.putString("Fingerprint", fingerprint(stack));
+    if (!stack.getComponentsPatch().isEmpty())
+      display.putString("Fingerprint", fingerprint(player, stack));
 
     return display;
   }
 
-  private static String fingerprint(ItemStack stack) {
+  private static String fingerprint(ServerPlayer player, ItemStack stack) {
     // 无需保留完整 NBT；规范化复合标签键顺序后以摘要区分同名变体。
     var digest = com.google.common.hash.Hashing.sha256().newHasher();
-    hashTag(digest, stack.getTag(), 0);
+    hashTag(digest, StackData.write(player.registryAccess(), stack.copyWithCount(1)), 0);
     return digest.hash().toString();
   }
 
@@ -151,8 +147,8 @@ final class RecentItems {
       var row = legacy.getCompound(i);
       var display = row.getCompound("Display").copy();
       var id = ResourceLocation.tryParse(display.getString("Item"));
-      if (id != null && ForgeRegistries.ITEMS.containsKey(id)) {
-        var item = ForgeRegistries.ITEMS.getValue(id);
+      if (id != null && BuiltInRegistries.ITEM.containsKey(id)) {
+        var item = BuiltInRegistries.ITEM.get(id);
         if (item != null && display.getInt("Category") != 2 && accessory(player, new ItemStack(item)))
           display.putInt("Category", 4);
       }

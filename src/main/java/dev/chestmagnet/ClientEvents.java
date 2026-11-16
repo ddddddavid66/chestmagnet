@@ -10,17 +10,17 @@ import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.HitResult;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.*;
-import net.minecraftforge.client.settings.*;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.*;
+import net.neoforged.neoforge.client.settings.*;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import org.lwjgl.glfw.GLFW;
 
 /** 所有快捷键从同一条物理按下路径派发；原版双手使用事件不再切换两次。 */
-@Mod.EventBusSubscriber(modid = ChestMagnet.ID, value = Dist.CLIENT)
+@EventBusSubscriber(modid = ChestMagnet.ID, value = Dist.CLIENT)
 public final class ClientEvents {
   public static Net.Snapshot latest;
   static final String CATEGORY = "key.categories.chestmagnet";
@@ -88,8 +88,7 @@ public final class ClientEvents {
   }
 
   @SubscribeEvent
-  public static void tick(TickEvent.ClientTickEvent e) {
-    if (e.phase != TickEvent.Phase.START) return;
+  public static void tick(ClientTickEvent.Pre e) {
     boolean active = inputActive();
     boolean changed = consumedMagnet != null && !consumedMagnet.equals(identity(held()));
     if (!active || changed) clearInput();
@@ -101,7 +100,7 @@ public final class ClientEvents {
   }
 
   static UUID identity(ItemStack s) {
-    var t = s.getTagElement("ChestMagnet");
+    var t = Data.tag(s);
     return t != null && t.hasUUID("Id") ? t.getUUID("Id") : new UUID(0, 0);
   }
 
@@ -198,9 +197,8 @@ public final class ClientEvents {
     lines.add(Component.literal("§7结构收取：").append(STRUCTURE.getTranslatedKeyMessage()));
   }
 
-  @Mod.EventBusSubscriber(
+  @EventBusSubscriber(
       modid = ChestMagnet.ID,
-      bus = Mod.EventBusSubscriber.Bus.MOD,
       value = Dist.CLIENT)
   public static class Setup {
     @SubscribeEvent
@@ -221,8 +219,8 @@ public final class ClientEvents {
     }
 
     @SubscribeEvent
-    public static void setup(FMLClientSetupEvent e) {
-      e.enqueueWork(() -> MenuScreens.register(Net.MENU.get(), MagnetScreen::new));
+    public static void setup(RegisterMenuScreensEvent e) {
+      e.register(Net.MENU.get(), MagnetScreen::new);
     }
   }
 }

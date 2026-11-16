@@ -1,0 +1,15 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+
+[[mods]]
+modId="chestmagnetqa"
+version="1"
+displayName="Chest Magnet NeoForge Verification"
+
+[[dependencies.chestmagnetqa]]
+modId="chestmagnet"
+type="required"
+versionRange="[1.2.8]"
+ordering="AFTER"
+side="BOTH"

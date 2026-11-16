@@ -1,91 +1,27 @@
 package dev.chestmagnet;
 
-import java.util.*;
-import java.util.function.Supplier;
-import net.minecraft.core.BlockPos;
-import net.minecraft.nbt.*;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.player.Player;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.Level;
 
-/** 限定来源的同步捕获；确定产物与不确定接收批次分开保存。 */
-public final class LootCapture {
-  private record Scope(ItemStack magnet, ServerPlayer player, Set<BlockPos> positions) {}
+/** 仅用于安全续交旧版缓存；取消支持的来源不会产生新的待接收物品。 */
+final class LootCapture {
+  private LootCapture() {}
 
-  private static final ThreadLocal<Scope> ACTIVE = new ThreadLocal<>();
-
-  public static ItemStack tool() {
-    return ACTIVE.get() == null ? ItemStack.EMPTY : ACTIVE.get().magnet;
-  }
-
-  public static BlockPos sourcePos() {
-    var s = ACTIVE.get();
-    return s == null || s.positions.isEmpty() ? BlockPos.ZERO : s.positions.iterator().next();
-  }
-
-  public static boolean accepts(Player p, ResourceLocation table) {
-    var s = ACTIVE.get();
-    return s != null
-        && s.player == p
-        && table.getNamespace().equals("tetra")
-        && table.getPath().startsWith("forged/");
-  }
-
-  public static boolean add(Level level, BlockPos pos, ItemStack item) {
-    var s = ACTIVE.get();
-    return s != null
-        && s.player != null
-        && s.player.level() == level
-        && s.positions.contains(pos)
-        && add(item);
-  }
-
-  public static boolean add(ItemStack item) {
-    var s = ACTIVE.get();
-    if (s == null) return false;
-    if (!item.isEmpty()) {
-      var t = Data.tag(s.magnet);
-      var l = t.getList("PendingLoot", 10);
-      l.add(item.save(new CompoundTag()));
-      t.put("PendingLoot", l);
-      var origin = new CompoundTag();
-      if (s.player != null) {
-        origin.putLong("Position", sourcePos().asLong());
-        origin.putString("Dimension", s.player.level().dimension().location().toString());
-        t.put("PendingOrigin", origin);
-      }
-    }
-    return true;
-  }
-
-  static <T> T run(ItemStack m, Supplier<T> action) {
-    var c = Faults.current();
-    return run(
-        m,
-        c == null ? null : c.player(),
-        c == null || c.ref() == null ? List.of() : c.ref().members(c.player()),
-        action);
-  }
-
-  static <T> T run(
-      ItemStack m, ServerPlayer p, Collection<BlockPos> positions, Supplier<T> action) {
-    if (ACTIVE.get() != null) throw new IllegalStateException("nested capture");
-    ACTIVE.set(new Scope(m, p, new LinkedHashSet<>(positions)));
-    try {
-      return action.get();
-    } finally {
-      ACTIVE.remove();
-    }
-  }
-
-  static boolean drain(ItemStack m, Destinations.Target target, long deadline) {
-    var t = Data.tag(m);
+  static boolean drain(ItemStack m, Destinations.Target target, long deadline, ServerPlayer player) {
+    var registries = player.registryAccess();
+    var t = Data.tag(m).copy();
     var list = t.getList("PendingLoot", 10);
     int n = 0;
     while (!list.isEmpty() && n++ < Config.STACKS.get() && System.nanoTime() < deadline) {
-      var item = ItemStack.of(list.getCompound(0));
+      var item = StackData.read(registries, list.getCompound(0));
+      if (item.isEmpty()) {
+        Faults.quarantine(m, "PendingLoot", "无法解析待接收物品，原数据已封存");
+        Data.edit(m, data -> data.remove("PendingOrigin"));
+        player.displayClientMessage(Component.literal("旧版待接收物品无法迁移，原始数据已封存，可在诊断页查看。"), false);
+        return true;
+      }
       try {
         if (target.insert(item, true).getCount() == item.getCount()) break;
       } catch (RuntimeException ex) {
@@ -102,17 +38,22 @@ public final class LootCapture {
         batch.put("Stack", list.remove(0));
         t.put("UncertainBatch", batch);
         t.put("PendingLoot", list);
+        Data.replace(m, t);
         Faults.quarantine(m, "UncertainBatch", "接收接口中断，不自动补发");
         Faults.quarantine(m, "PendingLoot", "同故障来源尚未投递产物封存，不影响其他来源");
         throw ex;
       }
       if (left.isEmpty()) list.remove(0);
-      else list.set(0, left.save(new CompoundTag()));
+      else list.set(0, StackData.write(registries, left));
       t.put("PendingLoot", list);
+      Data.replace(m, t);
     }
     if (list.isEmpty()) {
-      t.remove("PendingLoot");
-      t.remove("PendingOrigin");
+      if (t.contains("PendingOrigin") || t.contains("PendingLoot") || n > 0) {
+        t.remove("PendingLoot");
+        t.remove("PendingOrigin");
+        Data.replace(m, t);
+      }
     }
     return list.isEmpty();
   }

@@ -6,12 +6,12 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.ItemStack;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.event.entity.player.PlayerInteractEvent;
-import net.minecraftforge.event.server.ServerStoppedEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.ModList;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.ModList;
 
 public class Engine {
   static final Map<UUID, State> STATES = new HashMap<>();
@@ -49,7 +49,7 @@ public class Engine {
   }
 
   public static void toggle(ServerPlayer p, ItemStack s) {
-    Data.tag(s).putBoolean("Enabled", !Data.enabled(s));
+    Data.edit(s, data -> data.putBoolean("Enabled", !Data.enabled(s)));
     if (!Data.enabled(s)) StructureJobs.stopForMagnet(p, s, "玩家关闭磁铁");
     else STATES.remove(p.getUUID());
     p.getInventory().setChanged();
@@ -87,35 +87,34 @@ public class Engine {
     StructureJobs.clear();
     AutoStructures.clear();
     QuestDetection.clear();
-    if (ModList.get().isLoaded("lootr")) LootrCompat.clear();
   }
 
   @SubscribeEvent
   public void block(PlayerInteractEvent.RightClickBlock e) {
-    interact(
-        e,
-        SourceExtras.special(e.getLevel().getBlockState(e.getPos()))
-            ? new SourceExtras.Special(e.getPos())
-            : e.getLevel().getBlockEntity(e.getPos()));
+    if (isMagnet(e)) {
+      e.setCanceled(true);
+      e.setCancellationResult(InteractionResult.SUCCESS);
+    }
   }
 
   @SubscribeEvent
   public void entity(PlayerInteractEvent.EntityInteractSpecific e) {
-    interact(e, e.getTarget());
+    if (isMagnet(e)) {
+      e.setCanceled(true);
+      e.setCancellationResult(InteractionResult.SUCCESS);
+    }
   }
 
   @SubscribeEvent
   public void entityFallback(PlayerInteractEvent.EntityInteract e) {
-    interact(e, e.getTarget());
+    if (isMagnet(e)) {
+      e.setCanceled(true);
+      e.setCancellationResult(InteractionResult.SUCCESS);
+    }
   }
 
-  private void interact(PlayerInteractEvent e, Object source) {
-    ItemStack s = e.getItemStack();
-    if (!s.is(ChestMagnet.MAGNET.get())) return;
-    e.setCanceled(true);
-    e.setCancellationResult(InteractionResult.SUCCESS);
-    if (e.getLevel().isClientSide) return;
-    var p = (ServerPlayer) e.getEntity();
+  private boolean isMagnet(PlayerInteractEvent event) {
+    return event.getItemStack().is(ChestMagnet.MAGNET.get());
   }
 
   static void exclude(ServerPlayer p, ItemStack s, Object source) {
@@ -133,8 +132,7 @@ public class Engine {
   private int playerCursor;
 
   @SubscribeEvent
-  public void tick(TickEvent.ServerTickEvent e) {
-    if (e.phase != TickEvent.Phase.END) return;
+  public void tick(ServerTickEvent.Post e) {
     var players = e.getServer().getPlayerList().getPlayers();
     if (players.isEmpty()) return;
     long deadline = System.nanoTime() + Config.BUDGET.get() * 1000L;
@@ -155,7 +153,7 @@ public class Engine {
         Faults.migrate(p, magnet);
         if (Data.enabled(magnet)) work(p, magnet, state, collectionDeadline);
       } catch (Exception ex) {
-        Data.tag(magnet).putBoolean("Enabled", false);
+        Data.edit(magnet, data -> data.putBoolean("Enabled", false));
         state.status = "处理已暂停：" + String.valueOf(ex.getMessage());
         org.slf4j.LoggerFactory.getLogger("chestmagnet")
             .error("Transfer paused for {}", p.getUUID(), ex);
@@ -181,7 +179,7 @@ public class Engine {
       s.range = range;
     }
     if (Data.tag(m).contains("Recovery")) {
-      Data.tag(m).putBoolean("Enabled", false);
+      Data.edit(m, data -> data.putBoolean("Enabled", false));
       s.status = "存在转移恢复缓存，请先取回缓存后再开启";
       notify(p, s);
       return;
@@ -218,7 +216,7 @@ public class Engine {
       return;
     }
     boolean hadPending = LootCapture.pending(m);
-    if (!LootCapture.drain(m, target, deadline)) {
+    if (!LootCapture.drain(m, target, deadline, p)) {
       s.status = "开箱产物待接收 · " + target.reason();
       notify(p, s);
       return;
@@ -299,9 +297,9 @@ public class Engine {
           continue;
         }
         // 先拿到真实物品再交给目标；异常中断时保留待核对缓存，不凭模拟结果复制物品。
-        int done = Transfer.move(inv, slot, accepted, target, m);
+        int done = Transfer.move(inv, slot, accepted, target, m, p.registryAccess());
         if (Data.tag(m).contains("Recovery")) {
-          Data.tag(m).putBoolean("Enabled", false);
+          Data.edit(m, data -> data.putBoolean("Enabled", false));
           s.status = "余量或异常已保存至恢复缓存，磁铁暂停";
           notify(p, s);
           return;

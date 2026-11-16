@@ -1,12 +1,26 @@
 package dev.chestmagnet;
 
 import java.util.UUID;
+import java.util.function.Consumer;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.*;
+import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.item.ItemStack;
 
 public final class Data {
   public static CompoundTag tag(ItemStack s) {
-    return s.getOrCreateTagElement("ChestMagnet");
+    // 只读视图用于热路径；写入必须经过 edit/replace，不能原地修改组件。
+    return s.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).getUnsafe().getCompound("ChestMagnet");
+  }
+
+  public static void edit(ItemStack stack, Consumer<CompoundTag> change) {
+    var data = tag(stack).copy();
+    change.accept(data);
+    replace(stack, data);
+  }
+
+  static void replace(ItemStack stack, CompoundTag data) {
+    CustomData.update(DataComponents.CUSTOM_DATA, stack, root -> root.put("ChestMagnet", data.copy()));
   }
 
   public static boolean enabled(ItemStack s) {
@@ -42,8 +56,10 @@ public final class Data {
 
   public static UUID id(ItemStack s) {
     var t = tag(s);
-    if (!t.hasUUID("Id")) t.putUUID("Id", UUID.randomUUID());
-    return t.getUUID("Id");
+    if (t.hasUUID("Id")) return t.getUUID("Id");
+    var id = UUID.randomUUID();
+    edit(s, data -> data.putUUID("Id", id));
+    return id;
   }
 
   public static ListTag exclusions(ItemStack s) {
@@ -56,11 +72,11 @@ public final class Data {
   }
 
   public static boolean toggle(ItemStack s, String key, String label) {
-    ListTag list = exclusions(s);
+    ListTag list = exclusions(s).copy();
     for (int i = 0; i < list.size(); i++)
       if (list.getCompound(i).getString("Key").equals(key)) {
         list.remove(i);
-        tag(s).put("Excluded", list);
+        edit(s, t -> t.put("Excluded", list));
         return false;
       }
     if (list.size() >= Config.EXCLUSIONS.get()) return false;
@@ -68,7 +84,7 @@ public final class Data {
     entry.putString("Key", key);
     entry.putString("Label", label);
     list.add(entry);
-    tag(s).put("Excluded", list);
+    edit(s, t -> t.put("Excluded", list));
     return true;
   }
 }

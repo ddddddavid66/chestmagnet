@@ -4,7 +4,7 @@ import java.util.*;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
-import net.p3pp3rf1y.sophisticatedbackpacks.api.CapabilityBackpackWrapper;
+import net.p3pp3rf1y.sophisticatedbackpacks.backpack.wrapper.BackpackWrapper;
 import net.p3pp3rf1y.sophisticatedbackpacks.util.PlayerInventoryProvider;
 import net.p3pp3rf1y.sophisticatedcore.api.IStorageWrapper;
 
@@ -45,13 +45,10 @@ public final class BackpackCompat {
     Set<ItemStack> stacks = Collections.newSetFromMap(new IdentityHashMap<>());
     for (var b : bags) {
       if (b.stack.isEmpty() || !stacks.add(b.stack)) continue;
-      b.stack
-          .getCapability(CapabilityBackpackWrapper.getCapabilityInstance())
-          .ifPresent(
-              w -> {
-                if (w.getContentsUuid().isEmpty() || seen.add(w.getContentsUuid().get()))
-                  wrappers.add(w);
-              });
+      if (!(b.stack.getItem() instanceof net.p3pp3rf1y.sophisticatedbackpacks.backpack.BackpackItem)) continue;
+      var wrapper = BackpackWrapper.fromStack(b.stack);
+      if (wrapper.getContentsUuid().isEmpty() || seen.add(wrapper.getContentsUuid().get()))
+        wrappers.add(wrapper);
     }
     return wrappers;
   }

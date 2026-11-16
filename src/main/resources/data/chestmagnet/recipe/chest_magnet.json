@@ -1,0 +1,1 @@
+{"type":"minecraft:crafting_shaped","pattern":["IRI","GCG","IEI"],"key":{"I":{"item":"minecraft:iron_ingot"},"R":{"item":"minecraft:redstone"},"G":{"item":"minecraft:gold_ingot"},"C":{"item":"minecraft:chest"},"E":{"item":"minecraft:amethyst_shard"}},"result":{"id":"chestmagnet:chest_magnet"}}

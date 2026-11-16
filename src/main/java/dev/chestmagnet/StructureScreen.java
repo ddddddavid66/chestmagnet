@@ -151,8 +151,8 @@ public final class StructureScreen extends Screen {
   }
 
   @Override
-  public void render(GuiGraphics g, int mouseX, int mouseY, float partial) {
-    renderBackground(g);
+  public void renderBackground(GuiGraphics g, int mouseX, int mouseY, float partial) {
+    super.renderBackground(g, mouseX, mouseY, partial);
     g.fill(x - 2, y - 2, x + w + 2, y + h + 2, 0xffb18c4d);
     g.fill(x, y, x + w, y + h, 0xff20242a);
     String key = data.getString("Structure");
@@ -178,6 +178,10 @@ public final class StructureScreen extends Screen {
         + "  来源 " + data.getInt("Found") + "  处理 " + data.getInt("Processed")
         + "  跳过 " + data.getInt("Skipped");
     g.drawString(font, font.plainSubstrByWidth(stats, w - 16), x + 8, y + h - 46, 0xfff3ead4, false);
+  }
+
+  @Override
+  public void render(GuiGraphics g, int mouseX, int mouseY, float partial) {
     super.render(g, mouseX, mouseY, partial);
     if (mouseY >= y + h - 59 && mouseY < y + h - 34 && mouseX >= x && mouseX <= x + w)
       g.renderTooltip(font, Component.literal(data.getString("Status")), mouseX, mouseY);
@@ -225,8 +229,8 @@ public final class StructureScreen extends Screen {
   }
 
   @Override
-  public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
-    if (!map.contains(mouseX, mouseY)) return super.mouseScrolled(mouseX, mouseY, delta);
+  public boolean mouseScrolled(double mouseX, double mouseY, double horizontal, double delta) {
+    if (!map.contains(mouseX, mouseY)) return super.mouseScrolled(mouseX, mouseY, horizontal, delta);
     zoom = Math.max(0.5f, Math.min(8, zoom + (float) delta * 0.25f));
     return true;
   }

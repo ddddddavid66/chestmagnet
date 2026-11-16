@@ -313,7 +313,7 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
       text(g, "半径只影响附近吸附，不改变结构范围", 135, 0xffc9bda6);
       text(g, "收取来源", 151, 0xffe8bd68);
       text(g, "收空后：天境解锁；密码锁清除", 221, 0xffc9bda6);
-      text(g, "冰冻箱留普通空箱；Tetra 容器拆除", 237, 0xffc9bda6);
+      text(g, "冰冻箱收取后留下普通空箱", 237, 0xffc9bda6);
       text(g, "展示框保留空框；Lootr 保持个人库存", 253, 0xffc9bda6);
     } else if (tab == 2) {
       drawRecent(g);
@@ -330,7 +330,7 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
       text(g, "第 " + (page + 1) + " 页 · 排除记录不等于错误跳过", 128, 0xffc9bda6);
     } else {
       text(g, "异常来源长期跳过，手动解除后才可重试", 64, 0xffc9bda6);
-      text(g, "不确定批次封存，不自动补发或删除", 80, 0xffc9bda6);
+      text(g, "已封存 " + data.getInt("QuarantineCount") + " 批 · 不自动补发或删除", 80, 0xffc9bda6);
       text(g, "报告：logs/chestmagnet/errors", 96, 0xffc9bda6);
     }
     g.disableScissor();
@@ -349,7 +349,7 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
   }
 
   @Override
-  public boolean mouseScrolled(double x, double y, double delta) {
+  public boolean mouseScrolled(double x, double y, double horizontal, double delta) {
     if (tab == 2 && choosingCategory) {
       categoryOffset = net.minecraft.util.Mth.clamp(categoryOffset - (int) Math.signum(delta),
           0, RecentItems.CATEGORIES.length - dropdownRows());
@@ -363,12 +363,11 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
       init();
       return true;
     }
-    return super.mouseScrolled(x, y, delta);
+    return super.mouseScrolled(x, y, horizontal, delta);
   }
 
   @Override
   public void render(GuiGraphics g, int x, int y, float p) {
-    renderBackground(g);
     super.render(g, x, y, p);
     if (tab == 2) {
       drawCategoryControl(g, x, y);
@@ -491,13 +490,28 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
 
   private static net.minecraft.world.item.ItemStack icon(CompoundTag display) {
     var id = net.minecraft.resources.ResourceLocation.tryParse(display.getString("Item"));
-    var item = id == null ? null : net.minecraftforge.registries.ForgeRegistries.ITEMS.getValue(id);
+    var item = id == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.get(id);
     if (item == null || item == net.minecraft.world.item.Items.AIR) return net.minecraft.world.item.ItemStack.EMPTY;
     var stack = new net.minecraft.world.item.ItemStack(item);
     if (display.contains("Damage")) stack.setDamageValue(display.getInt("Damage"));
     var enchants = display.getList("Enchants", 10);
-    if (!enchants.isEmpty()) stack.getOrCreateTag().put(
-        item instanceof net.minecraft.world.item.EnchantedBookItem ? "StoredEnchantments" : "Enchantments", enchants.copy());
+    var level = net.minecraft.client.Minecraft.getInstance().level;
+    if (level != null && !enchants.isEmpty()) {
+      var registry = level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT);
+      var data = new net.minecraft.world.item.enchantment.ItemEnchantments.Mutable(
+          net.minecraft.world.item.enchantment.ItemEnchantments.EMPTY);
+      for (int i = 0; i < enchants.size(); i++) {
+        var entry = enchants.getCompound(i);
+        var enchantId = net.minecraft.resources.ResourceLocation.tryParse(entry.getString("id"));
+        if (enchantId != null) {
+          var key = net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.ENCHANTMENT, enchantId);
+          registry.getHolder(key).ifPresent(h -> data.set(h, entry.getInt("lvl")));
+        }
+      }
+      stack.set(item instanceof net.minecraft.world.item.EnchantedBookItem
+          ? net.minecraft.core.component.DataComponents.STORED_ENCHANTMENTS
+          : net.minecraft.core.component.DataComponents.ENCHANTMENTS, data.toImmutable());
+    }
     return stack;
   }
 
@@ -525,8 +539,9 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
       String name = itemName(display, icon);
       var lines = new java.util.ArrayList<Component>();
       lines.add(Component.literal(name));
-      net.minecraft.world.item.enchantment.EnchantmentHelper.getEnchantments(icon)
-          .forEach((enchant, level) -> lines.add(enchant.getFullname(level)));
+      for (var entry : net.minecraft.world.item.enchantment.EnchantmentHelper.getEnchantmentsForCrafting(icon).entrySet()) {
+        lines.add(net.minecraft.world.item.enchantment.Enchantment.getFullname(entry.getKey(), entry.getIntValue()));
+      }
       var amounts = row.getLongArray("Destinations");
       int destinations = 0;
       int lastMode = -1;
