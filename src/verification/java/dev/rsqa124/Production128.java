@@ -34,6 +34,9 @@ public final class Production128 {
   private static BlockPos container;
   private static ItemStack magnet;
   private static ItemStack compass;
+  private static final ResourceLocation BURIED = new ResourceLocation("minecraft:buried_treasure");
+  private static BlockEntity buriedIdentity;
+  private static UUID buriedUuid;
   private static final ResourceLocation VILLAGE = new ResourceLocation("minecraft:village_plains");
   static volatile boolean done;
 
@@ -62,7 +65,8 @@ public final class Production128 {
         if (scenario.equals("quark")) quark(p);
         else {
           require("UNSUPPORTED".equals(CompassTargets.snapshot(p).getString("State")), "no compass remains optional");
-          var at = level.getSharedSpawnPos().above();
+          var cp = new net.minecraft.world.level.ChunkPos(level.getSharedSpawnPos());
+          var at = new BlockPos(cp.getMinBlockX() + 8, 117, cp.getMinBlockZ() + 8);
           p.setPos(at.getX(), at.getY(), at.getZ());
           p.getInventory().setItem(0, new ItemStack(ForgeRegistries.ITEMS.getValue(new ResourceLocation("chestmagnet:chest_magnet"))));
           level.setBlockAndUpdate(at.east(), Blocks.BARREL.defaultBlockState());
@@ -71,9 +75,11 @@ public final class Production128 {
           var state = Class.forName("dev.chestmagnet.Engine$State");
           var constructor = state.getDeclaredConstructor();
           constructor.setAccessible(true);
-          method("Engine", "work", ServerPlayer.class, ItemStack.class, state, long.class)
-              .invoke(new Engine(), p, p.getInventory().getItem(0), constructor.newInstance(),
-                  System.nanoTime() + 100_000_000L);
+          var work = method("Engine", "work", ServerPlayer.class, ItemStack.class, state, long.class);
+          var engine = new Engine();
+          var scan = constructor.newInstance();
+          for (int attempt = 0; attempt < 32 && !barrel.isEmpty(); attempt++)
+            work.invoke(engine, p, p.getInventory().getItem(0), scan, System.nanoTime() + 10_000_000L);
           require(barrel.isEmpty() && p.getInventory().countItem(Items.POTATO) == 11, "real nearby transfer without compass");
           LOG.info("QA128_NO_COMPASS_NEARBY_PASS 11");
         }
@@ -269,6 +275,18 @@ public final class Production128 {
     old.putLong("Count", 1);
     var rows = new ListTag();
     rows.add(old);
+    var legacyBook = new CompoundTag();
+    var bookDisplay = display("minecraft:enchanted_book", 2);
+    var enchant = new CompoundTag();
+    enchant.putString("id", "minecraft:sharpness");
+    enchant.putShort("lvl", (short)3);
+    var enchantments = new ListTag();
+    enchantments.add(enchant);
+    bookDisplay.put("Enchants", enchantments);
+    legacyBook.put("Display", bookDisplay);
+    legacyBook.putLong("Time", System.currentTimeMillis() - 800);
+    legacyBook.putLong("Count", 1);
+    rows.add(legacyBook);
     stock.put("ChestMagnetRecentItems", rows);
     var magnet = new ItemStack(ForgeRegistries.ITEMS.getValue(new ResourceLocation("chestmagnet:chest_magnet")));
     p.getInventory().setItem(0, magnet);
@@ -278,7 +296,7 @@ public final class Production128 {
     var barrel = (BarrelBlockEntity) p.serverLevel().getBlockEntity(at);
     int slot = 0;
     for (var id : List.of("enigmaticlegacy:ocean_stone", "enigmaticaddons:revival_leaf",
-        "minecraft:enchanted_book", "minecraft:paper", "minecraft:feather", "minecraft:stone")) {
+        "minecraft:paper", "minecraft:feather", "minecraft:stone")) {
       var item = ForgeRegistries.ITEMS.getValue(new ResourceLocation(id));
       require(item != null && item != Items.AIR, id);
       barrel.setItem(slot++, new ItemStack(item));
@@ -296,8 +314,12 @@ public final class Production128 {
     var level = p.serverLevel();
     ticks++;
     if (stage == 0) {
-      // 使用已自然生成的村庄；不伪造指南针回调或目标。
-      anchor = level.findNearestMapStructure(net.minecraft.tags.StructureTags.VILLAGE, p.blockPosition(), 64, false);
+      // 两个场景都从真实搜索开始，不伪造指南针回调或结构快照。
+      if (scenario.equals("compass-lootr")) {
+        anchor = Production128Repair.locateChest(level, BURIED.toString(), new ResourceLocation("minecraft:chests/buried_treasure"), null, null);
+        p.getAbilities().invulnerable=true;
+        p.onUpdateAbilities();
+      } else anchor = level.findNearestMapStructure(net.minecraft.tags.StructureTags.VILLAGE, p.blockPosition(), 64, false);
       require(anchor != null, "locate nearby natural village");
       // Edited 排除玩家近处的结构；从村庄四个区块外开始搜索。
       var pos = new BlockPos(anchor.getX() + (scenario.startsWith("edited") ? 64 : 0), level.getSeaLevel() + 3, anchor.getZ());
@@ -325,7 +347,7 @@ public final class Production128 {
           LOG.info("QA128_ENHANCE159_LIFECYCLE_PASS restart and native stop");
         }
       }
-      search(p, "STRUCTURE", VILLAGE);
+      search(p, "STRUCTURE", scenario.equals("compass-lootr") ? BURIED : VILLAGE);
       require(!"FOUND".equals(CompassTargets.snapshot(p).getString("State")), "new search cleared previous marker");
       stage = 1;
       return;
@@ -333,6 +355,10 @@ public final class Production128 {
     if (ticks > 600) throw new IllegalStateException("compass timed out: " + CompassTargets.snapshot(p));
     var result = CompassTargets.snapshot(p);
     if (stage == 2) {
+      if (scenario.equals("compass-lootr")) {
+        if (checkBuriedTask(p, result)) done = true;
+        return;
+      }
       if (p.getInventory().countItem(Items.NETHER_STAR) == 1) {
         require(((BarrelBlockEntity)level.getBlockEntity(container)).isEmpty(), "structure transferred real barrel");
         LOG.info("QA128_COMPASS_PASS {} exact start and structure receipt", scenario);
@@ -376,9 +402,27 @@ public final class Production128 {
         .get(new ResourceLocation(result.getString("Structure")));
     var start = chunk.getStartForStructure(structure);
     require(start != null && start.isValid() && start.getChunkPos().equals(chunk.getPos()), "exact confirmed start");
-    container = start.getPieces().get(0).getBoundingBox().getCenter();
+    if (scenario.equals("compass-lootr")) {
+      require(BURIED.toString().equals(result.getString("Structure")), "native search selected buried treasure: " + result);
+      // 指南针可以选另一座更近的实例；只读取返回的精确起点，不用 QA 找到的第一座冒充。
+      if (container == null) {
+        var center = start.getChunkPos();
+        for (int x=-2;x<=2;x++) for (int z=-2;z<=2;z++) level.setChunkForced(center.x+x,center.z+z,true);
+        container = chunk.getBlockEntitiesPos().stream().filter(at -> {
+          var be=chunk.getBlockEntity(at);
+          var table=new ResourceLocation("minecraft:chests/buried_treasure");
+          return be instanceof noobanidus.mods.lootr.api.blockentity.ILootBlockEntity lootr ? table.equals(lootr.getTable())
+              : be!=null && table.toString().equals(be.saveWithoutMetadata().getString("LootTable"));
+        }).findFirst().orElseThrow(() -> new IllegalStateException("no natural buried source in exact start " + center));
+      }
+      if (!(level.getBlockEntity(container) instanceof noobanidus.mods.lootr.api.blockentity.ILootBlockEntity lootr)) return;
+      buriedIdentity=level.getBlockEntity(container);buriedUuid=lootr.getTileId();
+      BuriedClientCheck.pos=container;BuriedClientCheck.expected="lootr:lootr_chest";
+    } else {
+      container = start.getPieces().get(0).getBoundingBox().getCenter();
     level.setBlockAndUpdate(container, Blocks.BARREL.defaultBlockState());
     ((BarrelBlockEntity)level.getBlockEntity(container)).setItem(0, new ItemStack(Items.NETHER_STAR));
+    }
     p.teleportTo(container.getX() + .5, container.getY() + 2, container.getZ() + .5);
     magnet = new ItemStack(ForgeRegistries.ITEMS.getValue(new ResourceLocation("chestmagnet:chest_magnet")));
     p.getInventory().setItem(1, magnet);
@@ -386,6 +430,21 @@ public final class Production128 {
     var begin = method("StructureJobs", "beginAutomatic", ServerPlayer.class, ItemStack.class, CompoundTag.class);
     require((boolean)begin.invoke(null,p,magnet,result), "production structure task started");
     stage = 2;
+  }
+
+  private static boolean checkBuriedTask(ServerPlayer p, CompoundTag result) throws Exception {
+    var live=p.serverLevel().getBlockEntity(container);
+    require(live==buriedIdentity && buriedUuid.equals(((noobanidus.mods.lootr.api.blockentity.ILootBlockEntity)live).getTileId()), "same Lootr block and UUID throughout real structure task");
+    String key=result.getString("Dimension")+"|"+result.getString("Structure")+"|"+new net.minecraft.world.level.ChunkPos(result.getInt("StartX"),result.getInt("StartZ")).toLong();
+    var record=p.getPersistentData().getCompound("ChestMagnetStructureHistoryV1").getCompound(key);
+    if (!record.getString("State").equals("COMPLETE") || !BuriedClientCheck.confirmed) return false;
+    var inv=Sources.inventory(p,live,magnet);
+    require(inv!=null,"personal inventory remains accessible");
+    for (int i=0;i<inv.getSlots();i++) require(inv.getStackInSlot(i).isEmpty(),"personal loot was collected");
+    long count=p.getInventory().items.stream().filter(stack -> stack!=magnet && stack!=compass).mapToLong(ItemStack::getCount).sum();
+    require(count>0,"real destination receipt");
+    LOG.info("QA128_COMPASS_PASS compass-lootr real compass + scheduled structure scan, loot={}, uuid={}, source={}",count,buriedUuid,container);
+    return true;
   }
 
   @SuppressWarnings({"unchecked","rawtypes"})

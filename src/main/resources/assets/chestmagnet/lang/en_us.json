@@ -1,6 +1,6 @@
 {
-  "item.chestmagnet.chest_magnet": "Chest Magnet",
-  "key.categories.chestmagnet": "Chest Magnet",
+  "item.chestmagnet.chest_magnet": "Treasure Magnet",
+  "key.categories.chestmagnet": "Treasure Magnet",
   "key.chestmagnet.toggle": "Toggle magnet",
   "key.chestmagnet.settings": "Open settings (aim at air)",
   "key.chestmagnet.exclude": "Exclude / include source",

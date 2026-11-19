@@ -33,18 +33,34 @@ final class RecentItems {
       public ItemStack insert(ItemStack stack, boolean simulate) {
         if (simulate || stack.isEmpty()) return target.insert(stack, simulate);
         int offered = stack.getCount();
+        Item offeredItem = stack.getItem();
         CompoundTag display = null;
         try {
           display = describe(player, stack);
         } catch (RuntimeException | LinkageError ex) { failed(ex); }
-        var left = target.insert(stack, false);
+        Tracking.Rule rule = null;
+        try { rule = Tracking.match(player, stack); }
+        catch (RuntimeException | LinkageError ex) { failed(ex); }
+        BackpackReceipt receipt = rule != null && mode == 2 ? new BackpackReceipt(stack) : null;
+        ItemStack left;
+        if (receipt != null) receipt.open();
+        try { left = target.insert(stack, false); }
+        finally { if (receipt != null) receipt.close(); }
         int accepted = offered - left.getCount();
         if (display != null && accepted > 0 && accepted <= offered) {
           try {
             append(pools(player), display, mode, accepted, System.currentTimeMillis());
           } catch (RuntimeException | LinkageError ex) { failed(ex); }
         }
-        if (accepted > 0 && accepted <= offered) QuestDetection.wake(player);
+        if (accepted > 0 && accepted <= offered) {
+          if (rule != null && display != null) {
+            try {
+              var amounts = receipt == null ? new int[] {accepted, 0} : receipt.outcome(accepted);
+              TrackingAlerts.deliver(player, rule, publicDisplay(display), amounts[0], amounts[1]);
+            } catch (RuntimeException | LinkageError ex) { failed(ex); }
+          }
+          QuestDetection.wake(player, offeredItem);
+        }
         return left;
       }
       public boolean unavailable() { return target.unavailable(); }
@@ -59,12 +75,12 @@ final class RecentItems {
     LOG.warn("无法记录磁铁接收历史；不影响物品收取", error);
   }
 
-  private static CompoundTag describe(ServerPlayer player, ItemStack stack) {
+  static CompoundTag describe(ServerPlayer player, ItemStack stack) {
     var id = ForgeRegistries.ITEMS.getKey(stack.getItem());
     if (id == null) return null;
     var display = new CompoundTag();
     display.putString("Item", id.toString());
-    display.putInt("Category", category(player, stack));
+    display.putInt("Category", player == null ? 1 : category(player, stack));
     if (stack.hasCustomHoverName())
       display.putString("Name", clip(stack.getHoverName().getString(), 128));
     if (stack.isDamageableItem()) display.putInt("Damage", stack.getDamageValue());
@@ -81,15 +97,25 @@ final class RecentItems {
     if (!enchantments.isEmpty()) display.put("Enchants", enchantments);
     if (id.getNamespace().equals("tetra") && id.getPath().equals("scroll_rolled")) {
       var scrolls = ScrollIdentity.read(stack);
-      if (!scrolls.isEmpty()) display.putString("Variant", clip(scrolls.get(0).key(), 96));
+      if (!scrolls.isEmpty()) {
+        display.putString("Variant", clip(scrolls.get(0).key(), 96));
+        display.putString("ScrollKey", Tracking.scrollKey(stack));
+      }
     }
     // 仅本地合并键；真实标签和能力不保存、不发送。
-    if (stack.hasTag()) display.putString("Fingerprint", fingerprint(stack));
+    if (stack.hasTag()) {
+      display.putString("Fingerprint", fingerprint(stack));
+      // 原版可损耗物品在某些入口会自动补 Damage:0，并不代表选中了一个特殊变体。
+      var tag = stack.getTag();
+      if (stack.isDamageableItem() && tag.size() == 1
+          && tag.contains("Damage", Tag.TAG_INT) && tag.getInt("Damage") == 0)
+        display.putBoolean("PlainSelection", true);
+    }
 
     return display;
   }
 
-  private static String fingerprint(ItemStack stack) {
+  static String fingerprint(ItemStack stack) {
     // 无需保留完整 NBT；规范化复合标签键顺序后以摘要区分同名变体。
     var digest = com.google.common.hash.Hashing.sha256().newHasher();
     hashTag(digest, stack.getTag(), 0);
@@ -215,10 +241,26 @@ final class RecentItems {
   }
 
   static CompoundTag page(ServerPlayer player, int category, int requested) {
-    return page(pools(player), category, requested);
+    return page(pools(player), category, requested, false);
+  }
+
+  static CompoundTag page(ServerPlayer player, int category, int requested, boolean privateKeys) {
+    return page(pools(player), category, requested, privateKeys);
+  }
+
+  static CompoundTag publicDisplay(CompoundTag in) {
+    var result = in.copy();
+    result.remove("Fingerprint");
+    result.remove("ScrollKey");
+    result.remove("PlainSelection");
+    return result;
   }
 
   static CompoundTag page(CompoundTag pools, int category, int requested) {
+    return page(pools, category, requested, false);
+  }
+
+  private static CompoundTag page(CompoundTag pools, int category, int requested, boolean privateKeys) {
     int first = category == 0 ? 1 : category;
     int end = category == 0 ? CATEGORIES.length : first + 1;
     var sources = new ListTag[end - first];
@@ -246,7 +288,7 @@ final class RecentItems {
       var row = sources[best].getCompound(cursors[best]++);
       if (i >= page * PAGE_SIZE) {
         var clean = row.copy();
-        clean.getCompound("Display").remove("Fingerprint");
+        if (!privateKeys) clean.put("Display", publicDisplay(clean.getCompound("Display")));
         clean.remove("First");
         items.add(clean);
       }

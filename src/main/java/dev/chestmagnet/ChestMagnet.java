@@ -8,7 +8,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.*;
 import net.minecraft.world.level.Level;
 import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.BuildCreativeModeTabContentsEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.registries.*;
@@ -20,14 +19,24 @@ public class ChestMagnet {
       DeferredRegister.create(ForgeRegistries.ITEMS, ID);
   public static final RegistryObject<Item> MAGNET = ITEMS.register("chest_magnet", MagnetItem::new);
 
+  static final DeferredRegister<CreativeModeTab> TABS =
+      DeferredRegister.create(net.minecraft.core.registries.Registries.CREATIVE_MODE_TAB, ID);
+  static final RegistryObject<CreativeModeTab> MAGNET_TAB = TABS.register("treasure_magnet", () ->
+      CreativeModeTab.builder()
+          .title(Component.translatable("itemGroup.chestmagnet"))
+          .icon(() -> {
+            var icon = MAGNET.get().getDefaultInstance();
+            icon.getOrCreateTag().putBoolean("CreativeCover", true);
+            return icon;
+          })
+          .displayItems((context, output) -> output.accept(MAGNET.get()))
+          .build());
+
   public ChestMagnet() {
     var bus = FMLJavaModLoadingContext.get().getModEventBus();
     ITEMS.register(bus);
     Net.init();
-    bus.addListener(
-        (BuildCreativeModeTabContentsEvent e) -> {
-          if (e.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) e.accept(MAGNET);
-        });
+    TABS.register(bus);
     MinecraftForge.EVENT_BUS.register(new Engine());
     net.minecraftforge.fml.ModLoadingContext.get()
         .registerConfig(net.minecraftforge.fml.config.ModConfig.Type.SERVER, Config.SPEC);

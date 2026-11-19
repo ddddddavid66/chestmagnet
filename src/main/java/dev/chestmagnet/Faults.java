@@ -151,7 +151,7 @@ public final class Faults {
     StringWriter sw = new StringWriter();
     ex.printStackTrace(new PrintWriter(sw));
     String text =
-        "宝箱磁铁 1.2.1\n服务端日志：logs/chestmagnet/errors/"
+        "宝藏磁铁 1.2.1\n服务端日志：logs/chestmagnet/errors/"
             + java.time.LocalDate.now()
             + "/"
             + id

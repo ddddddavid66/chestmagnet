@@ -88,6 +88,7 @@ final class Production126Quests {
       next();
     } else if (phase == 8) {
       expect(team, 12, 13, 14);
+      if (Boolean.getBoolean("chestmagnet.inkProbe") && !InkProbe.tick(p, rs, beyond, bagA, magnet)) return;
       int bagCount = bagA.getStackInSlot(0).getCount() + bagB.getStackInSlot(4).getCount();
       long rsCount = rs.getItemStorageCache().getList().getStacks(new ItemStack(Items.DIAMOND)).stream()
           .mapToLong(entry -> entry.getStack().getCount()).sum();
@@ -201,7 +202,15 @@ final class Production126Quests {
     level.setBlockAndUpdate(STAND.below(), Blocks.STONE.defaultBlockState());
     p.teleportTo(3.5, 120, 3.5);
     level.setBlockAndUpdate(CTRL, block("controller").defaultBlockState());
-    level.setBlockAndUpdate(CTRL.east(), block("1k_storage_block").defaultBlockState());
+    String diskId=System.getProperty("chestmagnet.qaDisk", "");
+    if(diskId.isEmpty())level.setBlockAndUpdate(CTRL.east(),block("1k_storage_block").defaultBlockState());
+    else {
+      level.setBlockAndUpdate(CTRL.east(),block("disk_drive").defaultBlockState());
+      var drive=(com.refinedmods.refinedstorage.blockentity.DiskDriveBlockEntity)level.getBlockEntity(CTRL.east());
+      var disk=item(diskId);require(!disk.isEmpty(),"unknown test disk item "+diskId);disk.getItem().inventoryTick(disk,level,p,0,false);
+      ((IItemHandlerModifiable)drive.getNode().getDisks()).setStackInSlot(0,disk);
+      NearbyProductionChecks.LOG.info("INK_DISK_FIXTURE {}",diskId);
+    }
     var access = (BaseBlock) block("wireless_transmitter");
     level.setBlockAndUpdate(CTRL.above(), access.defaultBlockState().setValue(access.getDirection().getProperty(), Direction.DOWN));
     rs = ((ControllerBlockEntity) level.getBlockEntity(CTRL)).getNetwork();
@@ -210,6 +219,7 @@ final class Production126Quests {
   }
 
   private static void bindAndSeed(ServerPlayer p) {
+    if(Boolean.getBoolean("chestmagnet.inkProbe"))InkProbe.emptyTasks(p);
     var terminal = item("refinedstorage:wireless_grid");
     p.setItemInHand(InteractionHand.MAIN_HAND, terminal);
     var hit = new BlockHitResult(Vec3.atCenterOf(CTRL), Direction.UP, CTRL, false);

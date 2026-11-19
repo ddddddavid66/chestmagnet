@@ -65,7 +65,13 @@ public final class BackpackCompat {
         for (var w : wrappers) {
           if (left.isEmpty()) break;
           // EMPTY 余量可能代表销毁或压缩，按背包自身规则消费，不补发这些物品。
-          left = w.getInventoryForInputOutput().insertItem(left, simulate);
+          if (simulate || !BackpackReceipt.active()) {
+            left = w.getInventoryForInputOutput().insertItem(left, simulate);
+          } else {
+            BackpackReceipt.bag(w, w.getInventoryHandler());
+            try { left = w.getInventoryForInputOutput().insertItem(left, false); }
+            finally { BackpackReceipt.endBag(); }
+          }
         }
         return left;
       }

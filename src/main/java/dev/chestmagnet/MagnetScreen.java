@@ -21,15 +21,17 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
   private java.util.List<RecentRow> recentRows = java.util.List.of();
 
   private record RecentRow(net.minecraft.world.item.ItemStack icon, String name, String amount,
-      String detail, java.util.List<Component> tooltip) {}
+      String detail, java.util.List<Component> tooltip, java.util.List<Component> receipts) {}
   private int contentHeight;
   private final EditBox[] axes = new EditBox[3];
   private final String[] draft = new String[3];
   private int contentTop, contentBottom;
-  private static final String[] TABS = {"常规", "范围", "最近获取物品", "排除", "诊断"};
+  private static final String[] TABS = {"常规", "范围", "最近获取物品", "排除", "诊断", "追踪"};
+  private final TrackingPanel tracking;
 
   public MagnetScreen(MagnetMenu menu, Inventory inv, Component title) {
     super(menu, inv, title);
+    tracking = new TrackingPanel(menu);
     imageWidth = 350;
     imageHeight = 280;
   }
@@ -50,7 +52,7 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
     status = s.status();
     max = s.maxRadius();
     // 不销毁正在输入的范围文本；其他页随服务端状态刷新。
-    if (tab != 2 && !(tab == 1 && dirty) && minecraft != null) init();
+    if (tab != 2 && tab != TrackingPanel.TAB && !(tab == 1 && dirty) && minecraft != null) init();
   }
 
   private void send(int action, int value) {
@@ -84,7 +86,9 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
 
   @Override
   protected void init() {
-    imageWidth = Math.min(390, width - 12);
+    int maxWidth = tab == TrackingPanel.TAB && net.minecraftforge.fml.ModList.get().isLoaded("jei")
+        ? Math.max(224, Math.min(310, width - 112)) : 390;
+    imageWidth = Math.min(maxWidth, width - 12);
     imageHeight = Math.min(300, height - 8);
     super.init();
     clearWidgets();
@@ -96,47 +100,39 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
       status = ClientEvents.latest.status();
       max = ClientEvents.latest.maxRadius();
     }
-    int available = imageWidth - 24, required = 16;
-    for (var label : TABS) required += font.width(label) + 12;
-    int columns = available >= required ? 5 : available >= 190 ? 3 : 2;
-    int rows = (TABS.length + columns - 1) / columns;
-    int nx = 12;
-    int tw = (available - (columns - 1) * 4) / columns;
-    for (int i = 0; i < 5; i++) {
+    int available = imageWidth - 24;
+    int nx = 12, rows = 1;
+    for (int i = 0; i < TABS.length; i++) {
       final int t = i;
-      if (i % columns == 0) nx = 12;
-      int navWidth = columns == 5
-          ? font.width(TABS[i]) + 12 + (available - required) / 5
-          : Math.max(tw, font.width(TABS[i]) + 10);
-      if (columns == 3 && i == 2) navWidth = available + 12 - nx;
-      var b =
-          fixed(
-              nx,
-              27 + (i / columns) * 24,
-              navWidth,
-              TABS[i],
-              () -> {
-                if (tab != 2 && t == 2) category = 0;
-                choosingCategory = false;
-                tab = t;
-                scroll = 0;
-                confirm = false;
-                dirty = false;
-                if (tab == 2) loadRecent(0);
-                init();
-              });
+      int navWidth = Math.min(available, font.width(TABS[i]) + 16);
+      if (nx > 12 && nx + navWidth > imageWidth - 12) {
+        nx = 12;
+        rows++;
+      }
+      var b = fixed(nx, 27 + (rows - 1) * 24, navWidth, TABS[i], () -> {
+        if (tab != 2 && t == 2) category = 0;
+        choosingCategory = false;
+        tab = t;
+        scroll = 0;
+        confirm = false;
+        dirty = false;
+        if (tab == 2) loadRecent(0);
+        if (tab == TrackingPanel.TAB) tracking.request();
+        init();
+      });
       nx += navWidth + 4;
-      if (tab == i)
-        b.setMessage(Component.literal(TABS[i]).withStyle(net.minecraft.ChatFormatting.GOLD));
+      if (tab == i) b.setMessage(Component.literal(TABS[i]).withStyle(net.minecraft.ChatFormatting.GOLD));
     }
     if (!dirty) for (int i = 0; i < 3; i++) draft[i] = "" + radius(new String[] {"X", "Y", "Z"}[i]);
     contentTop = 27 + rows * 24 + 4;
     contentBottom = imageHeight - 42;
+    if (tab == TrackingPanel.TAB) tracking.layout(contentBottom - contentTop);
     fixed(imageWidth - 68, imageHeight - 26, 56, "完成", this::onClose);
     contentHeight = switch (tab) {
       case 0 -> 202;
-      case 1 -> 278;
+      case 1 -> 330;
       case 2 -> 44 + (history == null ? 1 : history.getList("Rows", 10).size()) * 27;
+      case TrackingPanel.TAB -> tracking.contentHeight();
       default -> 156;
     };
     scroll = Math.min(scroll, Math.max(0, contentHeight - (contentBottom - contentTop)));
@@ -203,6 +199,9 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
           "展示框物品："
               + (!data.contains("CollectFrames") || data.getBoolean("CollectFrames") ? "开启" : "关闭"),
           () -> send(10, 0));
+      var boss = row(218, "打Boss：" + (data.getBoolean("ProtectBoss") ? "是" : "否"), () -> send(27, 0));
+      if (boss != null) boss.setTooltip(Tooltip.create(Component.literal(
+          "开启后保护尚未原生解锁的召唤容器与首领奖励箱；关闭时可能影响首领召唤。")));
     } else if (tab == 2) {
       int half = (imageWidth - 28) / 2;
       categoryButton = fixed(12, contentTop, half, "分类：" + RecentItems.CATEGORIES[category], this::toggleCategories);
@@ -253,6 +252,8 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
               init();
             }
           });
+    } else if (tab == TrackingPanel.TAB) {
+      initTrackingControls();
     } else {
       row(
           0,
@@ -260,6 +261,56 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
           () -> ErrorScreen.openHistory(menu.identity));
       var recovery = row(26, "取回安全恢复缓存", () -> send(8, 0));
       if (recovery != null) recovery.active = data.contains("Recovery");
+    }
+  }
+
+  private void initTrackingControls() {
+    int yy = 24 + contentTop - scroll;
+    if (yy >= contentTop && yy + 20 <= contentBottom) {
+      int button = tracking.searching ? 48 : Math.min(116, imageWidth - 24);
+      fixed(imageWidth - 12 - button, yy, button, tracking.searching ? "收起" : "搜索物品", () -> {
+        tracking.searching = !tracking.searching;
+        if (tracking.searching) tracking.search(tracking.query);
+        init();
+      });
+      if (tracking.searching && imageWidth > 95) {
+        var search = new EditBox(font, leftPos + 12, topPos + yy, imageWidth - 78, 20, Component.literal("搜索物品"));
+        search.setMaxLength(80);
+        search.setHint(Component.literal("名称或注册 ID"));
+        search.setValue(tracking.query);
+        search.setResponder(tracking::search);
+        addRenderableWidget(search);
+      }
+    }
+    if (tracking.searching) {
+      row(12, tracking.paginationOffset(), 22, "<", () -> tracking.page(-1, imageWidth));
+      row(38, tracking.paginationOffset(), 22, ">", () -> tracking.page(1, imageWidth));
+    }
+  }
+
+  boolean trackingOutside(double x, double y) {
+    return tab == TrackingPanel.TAB && (x < leftPos - 2 || x >= leftPos + imageWidth + 2
+        || y < topPos - 2 || y >= topPos + imageHeight + 2);
+  }
+
+  boolean selectTracked(net.minecraft.world.item.ItemStack stack) {
+    return tracking.select(stack);
+  }
+
+  static void receiveTracking(Net.TrackingList message) {
+    if (net.minecraft.client.Minecraft.getInstance().screen instanceof MagnetScreen screen
+        && message.identity().equals(screen.menu.identity) && message.menu() == screen.menu.containerId) {
+      screen.tracking.receive(message);
+      if (screen.tab == TrackingPanel.TAB) {
+        screen.contentHeight = screen.tracking.contentHeight();
+        int end = Math.max(0, screen.contentHeight - (screen.contentBottom - screen.contentTop));
+        if (screen.scroll > end) {
+          screen.scroll = end;
+          screen.init();
+        }
+      }
+      if (!message.note().isBlank() && screen.tab == 2 && screen.minecraft.player != null)
+        screen.minecraft.player.displayClientMessage(Component.literal(message.note()), true);
     }
   }
 
@@ -281,7 +332,7 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
 
   @Override
   protected void renderLabels(GuiGraphics g, int mx, int my) {
-    g.drawString(font, "宝箱磁铁", 12, 9, 0xffe8bd68, false);
+    g.drawString(font, "宝藏磁铁", 12, 9, 0xffe8bd68, false);
     g.enableScissor(
         leftPos + 8, topPos + contentTop, leftPos + imageWidth - 8, topPos + contentBottom);
     if (tab == 0) {
@@ -312,11 +363,13 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
         text(g, new String[] {"东西 X · 半径", "上下 Y · 半径", "南北 Z · 半径"}[i], 30 + i * 26, 0xfff3ead4);
       text(g, "半径只影响附近吸附，不改变结构范围", 135, 0xffc9bda6);
       text(g, "收取来源", 151, 0xffe8bd68);
-      text(g, "收空后：天境解锁；密码锁清除", 221, 0xffc9bda6);
-      text(g, "冰冻箱留普通空箱；Tetra 容器拆除", 237, 0xffc9bda6);
-      text(g, "展示框保留空框；Lootr 保持个人库存", 253, 0xffc9bda6);
+      text(g, "非保护来源：天境解锁；密码锁清除", 249, 0xffc9bda6);
+      text(g, "冰冻箱留普通空箱；Tetra 容器拆除", 265, 0xffc9bda6);
+      text(g, "展示框保留空框；Lootr 保持个人库存", 281, 0xffc9bda6);
     } else if (tab == 2) {
       drawRecent(g);
+    } else if (tab == TrackingPanel.TAB) {
+      tracking.draw(g, font, imageWidth, contentTop, contentBottom, scroll, mx - leftPos, my - topPos);
     } else if (tab == 3) {
       var list = data.getList("Excluded", 10);
       if (list.isEmpty()) text(g, "暂无排除记录；手持磁铁对准来源添加", 8, 0xffc9bda6);
@@ -336,7 +389,7 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
     g.disableScissor();
     g.drawString(
         font,
-        font.plainSubstrByWidth(status, imageWidth - 28),
+        font.plainSubstrByWidth(tab == TrackingPanel.TAB ? tracking.note : status, imageWidth - 28),
         14,
         imageHeight - 39,
         0xffe8bd68,
@@ -374,6 +427,8 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
       drawCategoryControl(g, x, y);
       if (!choosingCategory) recentTooltip(g, x, y);
     }
+    if (tab == TrackingPanel.TAB && y >= topPos + contentTop && y < topPos + contentBottom)
+      tracking.tooltip(g, font, imageWidth, x - leftPos, y - topPos - contentTop + scroll, x, y);
     renderTooltip(g, x, y);
   }
 
@@ -422,6 +477,18 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
 
   @Override
   public boolean mouseClicked(double x, double y, int button) {
+    if (button == 1 && x >= leftPos + 12 && x < leftPos + imageWidth - 12
+        && y >= topPos + contentTop && y < topPos + contentBottom) {
+      int offset = (int) y - topPos - contentTop + scroll;
+      if (tab == TrackingPanel.TAB && tracking.click(imageWidth, (int) x - leftPos, offset)) return true;
+      if (tab == 2 && !choosingCategory && history != null && y >= topPos + contentTop + 38) {
+        int row = offset - 42;
+        if (row >= 0 && row % 27 < 25 && row / 27 < recentRows.size()) {
+          tracking.history(historyRequest, row / 27);
+          return true;
+        }
+      }
+    }
     if (tab == 2 && choosingCategory && button == 0) {
       int first = categoryButton.getY() + 23;
       if (x >= categoryButton.getX() && x < categoryButton.getX() + categoryButton.getWidth()
@@ -489,11 +556,12 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
   private static final java.time.format.DateTimeFormatter CLOCK =
       java.time.format.DateTimeFormatter.ofPattern("HH:mm").withZone(java.time.ZoneId.systemDefault());
 
-  private static net.minecraft.world.item.ItemStack icon(CompoundTag display) {
+  static net.minecraft.world.item.ItemStack icon(CompoundTag display) {
     var id = net.minecraft.resources.ResourceLocation.tryParse(display.getString("Item"));
     var item = id == null ? null : net.minecraftforge.registries.ForgeRegistries.ITEMS.getValue(id);
     if (item == null || item == net.minecraft.world.item.Items.AIR) return net.minecraft.world.item.ItemStack.EMPTY;
     var stack = new net.minecraft.world.item.ItemStack(item);
+    if (display.contains("Name")) stack.setHoverName(Component.literal(display.getString("Name")));
     if (display.contains("Damage")) stack.setDamageValue(display.getInt("Damage"));
     var enchants = display.getList("Enchants", 10);
     if (!enchants.isEmpty()) stack.getOrCreateTag().put(
@@ -501,7 +569,7 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
     return stack;
   }
 
-  private static String itemName(CompoundTag display, net.minecraft.world.item.ItemStack icon) {
+  static String itemName(CompoundTag display, net.minecraft.world.item.ItemStack icon) {
     if (display.contains("Name")) return display.getString("Name");
     String name = icon.isEmpty() ? display.getString("Item") : icon.getHoverName().getString();
     return display.contains("Variant") ? name + " · " + display.getString("Variant") : name;
@@ -530,17 +598,22 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
       var amounts = row.getLongArray("Destinations");
       int destinations = 0;
       int lastMode = -1;
+      var receipts = new java.util.ArrayList<Component>(4);
       for (int mode = 0; mode < Math.min(4, amounts.length); mode++) {
         if (amounts[mode] <= 0) continue;
         destinations++;
         lastMode = mode;
-        lines.add(Component.literal(receipt(mode) + " ×" + amounts[mode]
+        receipts.add(Component.literal(receipt(mode) + " ×" + amounts[mode]
             + (mode == 2 ? "（可能压缩或销毁）" : "")));
       }
+      lines.addAll(receipts);
+      if (!icon.isEmpty())
+        lines.add(Component.literal("Shift 查看详情 · 右键切换追踪").withStyle(net.minecraft.ChatFormatting.GRAY));
       String detail = destinations > 1 ? destinations + " 个去向 · 悬停查看" :
           lastMode >= 0 ? receipt(lastMode) : "已处理";
       decoded.add(new RecentRow(icon, name, "×" + row.getLong("Count"),
-          detail + "  " + CLOCK.format(java.time.Instant.ofEpochMilli(row.getLong("Time"))), lines));
+          detail + "  " + CLOCK.format(java.time.Instant.ofEpochMilli(row.getLong("Time"))),
+          java.util.List.copyOf(lines), java.util.List.copyOf(receipts)));
     }
     return decoded;
   }
@@ -579,7 +652,16 @@ public class MagnetScreen extends AbstractContainerScreen<MagnetMenu> {
         || y < topPos + contentTop + 36 || y >= topPos + contentBottom) return;
     int offset = y - topPos - contentTop - 42 + scroll;
     if (offset < 0 || offset / 27 >= recentRows.size() || offset % 27 >= 25) return;
-    g.renderComponentTooltip(font, recentRows.get(offset / 27).tooltip(), x, y);
+    var row = recentRows.get(offset / 27);
+    if (!hasShiftDown() || row.icon().isEmpty()) {
+      g.renderComponentTooltip(font, row.tooltip(), x, y);
+      return;
+    }
+    // 每次 Shift 悬停取原生提示，附魔说明等监听器可以按当前键位补充文字。
+    var stack = row.icon().copy();
+    var lines = new java.util.ArrayList<>(getTooltipFromItem(minecraft, stack));
+    lines.addAll(row.receipts());
+    g.renderTooltip(font, lines, stack.getTooltipImage(), stack, x, y);
   }
 
   @Override

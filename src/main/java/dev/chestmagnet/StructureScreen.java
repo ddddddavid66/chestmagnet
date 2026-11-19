@@ -35,7 +35,7 @@ public final class StructureScreen extends Screen {
     var mc = Minecraft.getInstance();
     if (snapshot.contains("Error")) {
       mc.setScreen(new AlertScreen(() -> mc.setScreen(null),
-          Component.literal("宝箱磁铁"), Component.literal(snapshot.getString("Error"))));
+          Component.literal("宝藏磁铁"), Component.literal(snapshot.getString("Error"))));
       return;
     }
     // 查看错误详情时仍更新上一级快照；否则返回地图会永久缺失这段时间收到的图块。

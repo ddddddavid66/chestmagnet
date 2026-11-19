@@ -19,7 +19,7 @@ import net.minecraftforge.registries.*;
 public final class Net {
   private static final SimpleChannel CHANNEL =
       NetworkRegistry.newSimpleChannel(
-          new ResourceLocation(ChestMagnet.ID, "main"), () -> "8", "8"::equals, "8"::equals);
+          new ResourceLocation(ChestMagnet.ID, "main"), () -> "9", "9"::equals, "9"::equals);
   static final DeferredRegister<MenuType<?>> MENUS =
       DeferredRegister.create(ForgeRegistries.MENU_TYPES, ChestMagnet.ID);
   public static final RegistryObject<MenuType<MagnetMenu>> MENU =
@@ -36,7 +36,38 @@ public final class Net {
   public record Snapshot(CompoundTag data, String status, int maxRadius) {}
   public record PreviewRequest(UUID nonce, int revision, int centerX, int centerZ, int height) {}
 
+  // C2S 只接受有界的标识与摘要，不接收任意物品标签。
+  record TrackingEdit(UUID identity, int menu, int operation, int sequence, int row,
+      String item, byte kind, String variant, String name, String label, String enchants) {}
+  record TrackingList(UUID identity, int menu, CompoundTag data, String note) {}
+  record TrackingAlert(String rule, CompoundTag display, int amount, boolean destroyed) {}
+
   public static void init() {
+    CHANNEL.registerMessage(6, TrackingEdit.class, (m, b) -> {
+      b.writeUUID(m.identity()); b.writeVarInt(m.menu()); b.writeByte(m.operation());
+      b.writeInt(m.sequence()); b.writeVarInt(m.row()); b.writeUtf(m.item(), 256);
+      b.writeByte(m.kind()); b.writeUtf(m.variant(), 64); b.writeUtf(m.name(), 128);
+      b.writeUtf(m.label(), 96); b.writeUtf(m.enchants(), 512);
+    }, b -> new TrackingEdit(b.readUUID(), b.readVarInt(), b.readByte(), b.readInt(), b.readVarInt(),
+      b.readUtf(256), b.readByte(), b.readUtf(64), b.readUtf(128), b.readUtf(96), b.readUtf(512)),
+      (m, c) -> {
+        var ctx = c.get(); ctx.enqueueWork(() -> handleTracking(ctx.getSender(), m));
+        ctx.setPacketHandled(true);
+      }, Optional.of(NetworkDirection.PLAY_TO_SERVER));
+    CHANNEL.registerMessage(7, TrackingList.class, (m, b) -> {
+      b.writeUUID(m.identity()); b.writeVarInt(m.menu()); b.writeNbt(m.data()); b.writeUtf(m.note(), 128);
+    }, b -> new TrackingList(b.readUUID(), b.readVarInt(), b.readNbt(), b.readUtf(128)),
+      (m, c) -> {
+        var ctx = c.get(); ctx.enqueueWork(() -> MagnetScreen.receiveTracking(m));
+        ctx.setPacketHandled(true);
+      }, Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+    CHANNEL.registerMessage(8, TrackingAlert.class, (m, b) -> {
+      b.writeUtf(m.rule(), 330); b.writeNbt(m.display()); b.writeVarInt(m.amount()); b.writeBoolean(m.destroyed());
+    }, b -> new TrackingAlert(b.readUtf(330), b.readNbt(), b.readVarInt(), b.readBoolean()),
+      (m, c) -> {
+        var ctx = c.get(); ctx.enqueueWork(() -> TrackingToast.receive(m));
+        ctx.setPacketHandled(true);
+      }, Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     MENUS.register(FMLJavaModLoadingContext.get().getModEventBus());
     CHANNEL.registerMessage(5, RecentPage.class,
         (m, b) -> { b.writeUUID(m.identity()); b.writeVarInt(m.menuId()); b.writeInt(m.request()); b.writeNbt(m.data()); },
@@ -110,6 +141,63 @@ public final class Net {
         Optional.of(NetworkDirection.PLAY_TO_CLIENT));
   }
 
+  static void trackingAlert(ServerPlayer p, TrackingAlert message) {
+    CHANNEL.send(PacketDistributor.PLAYER.with(() -> p), message);
+  }
+
+  static void trackingEdit(TrackingEdit edit) { CHANNEL.sendToServer(edit); }
+
+  private static void handleTracking(ServerPlayer p, TrackingEdit action) {
+    if (p == null || !(p.containerMenu instanceof MagnetMenu menu) || menu.containerId != action.menu()
+        || !menu.identity.equals(action.identity()) || !menu.stillValid(p)
+        || !menu.allowTracking(p.server.getTickCount())) return;
+    String note = "";
+    switch (action.operation()) {
+      case 0 -> {}
+      case 1, 3 -> {
+        var key = new Tracking.Key(action.item(), action.kind(), action.variant());
+        var rule = action.operation() == 3
+            ? Tracking.rules(p).stream().filter(r -> r.key().equals(key)).findFirst().orElse(null)
+            : new Tracking.Rule(key, display(action));
+        if (!Tracking.toggle(p, rule)) note = "无法修改追踪：物品变体无效或列表已满";
+      }
+      case 2 -> {
+        if (!Tracking.toggle(p, menu.historyRule(action.sequence(), action.row())))
+          note = "无法从此条历史追踪；请刷新或选择具体物品";
+      }
+      default -> { return; }
+    }
+    var rows = new ListTag();
+    Tracking.rules(p).forEach(rule -> rows.add(rule.save()));
+    var data = new CompoundTag();
+    data.put("Rows", rows);
+    CHANNEL.send(PacketDistributor.PLAYER.with(() -> p), new TrackingList(menu.identity, menu.containerId, data, note));
+  }
+
+  private static CompoundTag display(TrackingEdit action) {
+    var result = new CompoundTag();
+    result.putString("Item", action.item());
+    if (!action.name().isBlank()) result.putString("Name", action.name());
+    if (!action.label().isBlank()) result.putString("Variant", action.label());
+    var enchantments = new ListTag();
+    for (var line : action.enchants().split("\n", 17)) {
+      int split = line.lastIndexOf('=');
+      if (split < 1 || enchantments.size() >= 16) continue;
+      var id = ResourceLocation.tryParse(line.substring(0, split));
+      if (id == null || !ForgeRegistries.ENCHANTMENTS.containsKey(id)) continue;
+      try {
+        int level = Integer.parseInt(line.substring(split + 1));
+        if (level < 1 || level > 32767) continue;
+        var enchantment = new CompoundTag();
+        enchantment.putString("id", id.toString());
+        enchantment.putInt("lvl", level);
+        enchantments.add(enchantment);
+      } catch (NumberFormatException ignored) {}
+    }
+    if (!enchantments.isEmpty()) result.put("Enchants", enchantments);
+    return result;
+  }
+
   public static void structure(ServerPlayer p, CompoundTag data) {
     CHANNEL.send(PacketDistributor.PLAYER.with(() -> p), data);
   }
@@ -175,6 +263,15 @@ public final class Net {
 
   private static void handle(ServerPlayer p, Request q) {
     if (p == null || !p.isAlive() || p.isSpectator()) return;
+    if (q.action() == 27) {
+      if (!(p.containerMenu instanceof MagnetMenu menu) || !menu.stillValid(p)
+          || !menu.identity.equals(q.identity()) || !allowAction(p)) return;
+      var magnet = menu.stack();
+      Data.tag(magnet).putBoolean("ProtectBoss", !BossProtection.enabled(magnet));
+      p.getInventory().setChanged();
+      sync(p, magnet, Engine.status(p));
+      return;
+    }
     if (q.action() >= 20) {
       if (q.action() == 20) {
         long now = p.level().getGameTime();
@@ -223,7 +320,7 @@ public final class Net {
       NetworkHooks.openScreen(
           p,
           new SimpleMenuProvider(
-              (n, inv, player) -> new MagnetMenu(n, inv, off, id), Component.literal("宝箱磁铁")),
+              (n, inv, player) -> new MagnetMenu(n, inv, off, id), Component.literal("宝藏磁铁")),
           b -> {
             b.writeBoolean(off);
             b.writeUUID(id);
@@ -238,8 +335,15 @@ public final class Net {
       if (!menu.allowRecent(p.server.getTickCount())) return;
       int category = q.value & 7, page = (q.value >>> 3) & 31;
       if (category >= RecentItems.CATEGORIES.length) return;
-      CHANNEL.send(PacketDistributor.PLAYER.with(() -> p), new RecentPage(menu.identity, menu.containerId, q.value,
-          RecentItems.page(p, category, page)));
+      var history = RecentItems.page(p, category, page, true);
+      var rows = history.getList("Rows", Tag.TAG_COMPOUND);
+      menu.offerHistory(q.value, rows);
+      for (int i = 0; i < rows.size(); i++) {
+        var row = rows.getCompound(i);
+        row.put("Display", RecentItems.publicDisplay(row.getCompound("Display")));
+      }
+      CHANNEL.send(PacketDistributor.PLAYER.with(() -> p),
+          new RecentPage(menu.identity, menu.containerId, q.value, history));
       return;
     }
     var s = menu.stack();

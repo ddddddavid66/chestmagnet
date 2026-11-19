@@ -169,23 +169,48 @@ public final class Sources {
     return inventory(p, o, null);
   }
 
+  static List<BlockPos> pendingLootrConversion(ServerPlayer p, Object o) {
+    if (!(o instanceof RandomizableContainerBlockEntity tile)
+        || !ModList.get().isLoaded("lootr") || personalLoot(tile)) return List.of();
+    var level = p.serverLevel();
+    boolean first = awaitingLootr(tile, level);
+    var state = tile.getBlockState();
+    var other = state.getBlock() instanceof ChestBlock && state.hasProperty(ChestBlock.TYPE)
+        && state.getValue(ChestBlock.TYPE) != ChestType.SINGLE ? otherHalf(p, tile.getBlockPos()) : null;
+    boolean second = other != null && level.getBlockEntity(other) instanceof RandomizableContainerBlockEntity half
+        && !personalLoot(half) && awaitingLootr(half, level);
+    if (!first && !second) return List.of();
+    return other == null ? List.of(tile.getBlockPos()) : List.of(tile.getBlockPos(), other);
+  }
+
+  private static boolean awaitingLootr(RandomizableContainerBlockEntity tile, net.minecraft.server.level.ServerLevel level) {
+    try {
+      return LootrCompat.awaitingConversion(tile, level);
+    } catch (LinkageError incompatibleLootr) {
+      // 未知接口时保护未生成的战利品，不能提前把 Lootr 候选当普通库存取走。
+      return UnopenedLoot.table(tile) != null;
+    }
+  }
+
   public static IItemHandler inventory(
       ServerPlayer p, Object o, net.minecraft.world.item.ItemStack magnet) {
-    if (o instanceof SourceExtras.Special
-        || o instanceof net.minecraft.world.entity.decoration.ItemFrame
-        || (o instanceof BlockEntity b && SourceExtras.known(b)))
-      return SourceExtras.inventory(p, o, magnet);
-    if (o instanceof BlockEntity be && ChurchContainers.known(be)) return ChurchContainers.inventory(p, be, magnet);
+    if (BossProtection.protects(o, magnet)) return null;
     if (personalLoot(o)) {
       if (!ModList.get().isLoaded("lootr")) return null;
       try {
         if (!LootrCompat.supports(o)) return null;
-        Container c = LootrCompat.inventory(p, o);
+        Container c = LootrCompat.inventory(p, o, SourceExtras.option(magnet, "CollectLocked"));
         return c == null ? null : new InvWrapper(c);
       } catch (LinkageError ignored) {
         return null;
       }
     }
+    if (!pendingLootrConversion(p, o).isEmpty()) return null;
+    if (o instanceof SourceExtras.Special
+        || o instanceof net.minecraft.world.entity.decoration.ItemFrame
+        || (o instanceof BlockEntity b && SourceExtras.known(b)))
+      return SourceExtras.inventory(p, o, magnet);
+    if (o instanceof BlockEntity be && ChurchContainers.known(be)) return ChurchContainers.inventory(p, be, magnet);
     if (o instanceof BaseContainerBlockEntity b
         && !SourceExtras.option(magnet, "CollectLocked")
         && !b.canOpen(p)) return null;
@@ -212,9 +237,13 @@ public final class Sources {
               && !lock.canOpen(p)) return null;
         }
       }
-      for (var at : of(o).members(p))
-        if (p.level().getBlockEntity(at) instanceof RandomizableContainerBlockEntity half)
-          half.unpackLootTable(p);
+        for (var at : of(o).members(p)) {
+          if (p.level().getBlockEntity(at) instanceof ChestBlockEntity half
+              && !InventoryPetsCompat.prepare(p, half)) return null;
+        }
+        for (var at : of(o).members(p))
+          if (p.level().getBlockEntity(at) instanceof RandomizableContainerBlockEntity half)
+            half.unpackLootTable(p);
       return new InvWrapper(c);
     }
     if (o instanceof RandomizableContainerBlockEntity b) b.unpackLootTable(p);

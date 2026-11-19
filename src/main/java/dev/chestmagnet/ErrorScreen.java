@@ -26,7 +26,7 @@ public final class ErrorScreen extends Screen {
   private Button detailsTab, skippedTab;
 
   private ErrorScreen(LocalReport local, Screen parent) {
-    super(Component.literal("宝箱磁铁 · 错误详情"));
+    super(Component.literal("宝藏磁铁 · 错误详情"));
     this.local = local;
     this.parent = parent;
     if (ClientEvents.latest != null) update(ClientEvents.latest);

@@ -10,6 +10,7 @@ parser.add_argument('--pack', type=Path, required=True, help='包含 versions/li
 parser.add_argument('--magnet', type=Path, help='省略表示无磁铁；提供正式 JAR 路径')
 parser.add_argument('--mode', choices=['off', 'idle', 'active'], default='off')
 parser.add_argument('--suite', choices=['rs124', 'bench', 'compat', 'rs125', 'ftb126', 'chapel126'], default='rs124')
+parser.add_argument('--ink-probe', action='store_true')
 parser.add_argument('--quest127', action='store_true')
 parser.add_argument('--gui-scale', type=int, default=2)
 parser.add_argument('--ftb-legacy', action='store_true')
@@ -55,6 +56,8 @@ if args.suite == 'ftb126':
                  'ftb-quests-forge-' + ('2001.4.13' if args.ftb_legacy else '2001.4.22') + '.jar',
                  'ftb-library-forge-' + ('2001.2.9' if args.ftb_legacy else '2001.2.12') + '.jar'):
         shutil.copy2(root/'libs'/name, case/'mods'/name)
+    if args.ink_probe:
+        patterns += ['*irons_spellbooks-1.20.1-3.15.4.jar', '*player-animation-lib-forge*.jar', '*geckolib-forge-1.20.1*.jar']
     if args.quest127:
         for name in ('tetra-6.9.0.jar', 'mutil-6.2.0.jar'):
             shutil.copy2(root/'libs'/name, case/'mods'/name)
@@ -98,12 +101,14 @@ def expand(text):
     for key,value in subs.items(): text=text.replace('${'+key+'}',value)
     return text
 jvm=['-Xmx3G']
+if args.ink_probe:
+    jvm += ['-Dchestmagnet.inkProbe=true']
 if args.quest127:
     jvm += ['-Dchestmagnet.qa127=true']
 if args.suite == 'rs124':
     jvm += ['-Dchestmagnet.rsClient=true','-Dchestmagnet.qaMode='+args.mode,'-Dchestmagnet.qaDisk='+args.disk]
 else:
-    jvm += ['-Dchestmagnet.qa125='+args.suite]
+    jvm += ['-Dchestmagnet.qa125='+args.suite,'-Dchestmagnet.qaDisk='+args.disk]
 for value in manifest['arguments']['jvm']:
     if isinstance(value,dict):
         if not all(rule.get('os',{}).get('name','windows')=='windows' and rule.get('os',{}).get('arch','x86_64')!='x86' for rule in value['rules']):continue

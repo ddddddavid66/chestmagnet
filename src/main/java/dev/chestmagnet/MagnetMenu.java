@@ -20,6 +20,27 @@ public class MagnetMenu extends AbstractContainerMenu {
     return ++recentRequests <= 12;
   }
 
+  private int recentSequence = -1;
+  private java.util.List<Tracking.Rule> offeredHistory = java.util.List.of();
+  private int trackingTick = -20, trackingRequests;
+
+  void offerHistory(int sequence, net.minecraft.nbt.ListTag rows) {
+    recentSequence = sequence;
+    var snapshot = new java.util.ArrayList<Tracking.Rule>(8);
+    for (int i = 0; i < rows.size(); i++) snapshot.add(Tracking.fromHistory(rows.getCompound(i).getCompound("Display")));
+    offeredHistory = snapshot;
+  }
+
+  Tracking.Rule historyRule(int sequence, int index) {
+    return sequence == recentSequence && index >= 0 && index < offeredHistory.size()
+        ? offeredHistory.get(index) : null;
+  }
+
+  boolean allowTracking(int tick) {
+    if (tick - trackingTick >= 20) { trackingTick = tick; trackingRequests = 0; }
+    return ++trackingRequests <= 16;
+  }
+
   public MagnetMenu(int id, Inventory inv, boolean offhand, UUID identity) {
     super(Net.MENU.get(), id);
     owner = inv.player;

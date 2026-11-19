@@ -222,7 +222,12 @@ public final class ClientEvents {
 
     @SubscribeEvent
     public static void setup(FMLClientSetupEvent e) {
-      e.enqueueWork(() -> MenuScreens.register(Net.MENU.get(), MagnetScreen::new));
+      e.enqueueWork(() -> {
+        MenuScreens.register(Net.MENU.get(), MagnetScreen::new);
+        net.minecraft.client.renderer.item.ItemProperties.register(ChestMagnet.MAGNET.get(),
+            new net.minecraft.resources.ResourceLocation(ChestMagnet.ID, "creative_cover"),
+            (stack, level, entity, seed) -> stack.getTag() != null && stack.getTag().getBoolean("CreativeCover") ? 1 : 0);
+      });
     }
   }
 }

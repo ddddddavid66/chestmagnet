@@ -11,7 +11,6 @@ import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.ModList;
 
 public class Engine {
   static final Map<UUID, State> STATES = new HashMap<>();
@@ -54,7 +53,7 @@ public class Engine {
     else STATES.remove(p.getUUID());
     p.getInventory().setChanged();
     message(
-        p, "宝箱磁铁已" + (Data.enabled(s) ? "开启" : "关闭") + " · 吸收模式：" + Data.modeName(Data.mode(s)));
+        p, "宝藏磁铁已" + (Data.enabled(s) ? "开启" : "关闭") + " · 吸收模式：" + Data.modeName(Data.mode(s)));
   }
 
   public static String status(ServerPlayer p) {
@@ -64,6 +63,8 @@ public class Engine {
 
   @SubscribeEvent
   public void logout(PlayerEvent.PlayerLoggedOutEvent e) {
+    Tracking.remove(e.getEntity().getUUID());
+    TrackingAlerts.forget(e.getEntity().getUUID());
     STATES.remove(e.getEntity().getUUID());
     Net.clearPlayer(e.getEntity().getUUID());
     StructureJobs.cancel(e.getEntity().getUUID());
@@ -74,7 +75,7 @@ public class Engine {
   @SubscribeEvent
   public void clonePlayer(PlayerEvent.Clone e) {
     if (e.getOriginal() instanceof ServerPlayer old && e.getEntity() instanceof ServerPlayer player)
-      { AutoStructures.copy(old, player); CompassTargets.copy(old, player); RecentItems.copy(old, player); }
+      { AutoStructures.copy(old, player); CompassTargets.copy(old, player); RecentItems.copy(old, player); Tracking.copy(old, player); }
   }
 
   @SubscribeEvent
@@ -87,7 +88,6 @@ public class Engine {
     StructureJobs.clear();
     AutoStructures.clear();
     QuestDetection.clear();
-    if (ModList.get().isLoaded("lootr")) LootrCompat.clear();
   }
 
   @SubscribeEvent
@@ -139,8 +139,10 @@ public class Engine {
     if (players.isEmpty()) return;
     long deadline = System.nanoTime() + Config.BUDGET.get() * 1000L;
     Net.flushPreviews(e.getServer());
-    // 吸收持续跑满时，每十 tick 为任务检测预留少量原有预算，避免永远排不到。
-    long collectionDeadline = e.getServer().getTickCount() % 10 == 0 && QuestDetection.hasPending(players, e.getServer().getTickCount())
+    TrackingAlerts.flush(e.getServer());
+    // 结构/附近收取持续跑满时，每个到期 tick 预留最多原预算的十分之一；
+    // 原先每十 tick 才预留一次，真实整包数千任务会长期卡在队首。总预算不增加。
+    long collectionDeadline = QuestDetection.hasPending(players, e.getServer().getTickCount())
         ? deadline - Math.min(350_000L, Config.BUDGET.get() * 100L) : deadline;
     AutoStructures.tick(e.getServer(), collectionDeadline);
     StructureJobs.tick(e.getServer(), collectionDeadline);
@@ -272,6 +274,7 @@ public class Engine {
         reason = "来源已接入目标 RS 网络";
         continue;
       }
+      if (BossProtection.protects(o, m)) { reason = "打Boss保护：首领来源尚未原生解锁"; continue; }
       Faults.context(p, m, ref, "准备来源");
       var inv = Sources.inventory(p, o, m);
       if (inv == null) continue;

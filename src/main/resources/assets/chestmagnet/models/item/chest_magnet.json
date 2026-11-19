@@ -1,1 +1,1 @@
-{"parent":"minecraft:item/generated","textures":{"layer0":"chestmagnet:item/chest_magnet"}}
+{"parent":"minecraft:item/generated","textures":{"layer0":"chestmagnet:item/chest_magnet"},"overrides":[{"predicate":{"chestmagnet:creative_cover":1},"model":"chestmagnet:item/creative_cover"}]}

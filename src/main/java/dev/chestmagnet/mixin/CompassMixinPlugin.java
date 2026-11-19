@@ -5,7 +5,6 @@ import org.objectweb.asm.tree.MethodInsnNode;
 import org.spongepowered.asm.mixin.extensibility.*;
 import org.spongepowered.asm.service.MixinService;
 import dev.chestmagnet.CompassTargets;
-import dev.chestmagnet.LootrBridge;
 public final class CompassMixinPlugin implements IMixinConfigPlugin {
  public void onLoad(String p){} public String getRefMapperConfig(){return null;}
  private static final String PREFIX = "com.chaosthedude.explorerscompass.";
@@ -28,7 +27,22 @@ public final class CompassMixinPlugin implements IMixinConfigPlugin {
  private Adapter adapter;
 
  public boolean shouldApplyMixin(String target, String mixin) {
-   if (mixin.endsWith(".LootrMenuMixin")) return lootrMenuShape(target);
+   if (mixin.contains("Backpack") && mixin.endsWith("Mixin")) {
+     try {
+       var klass = MixinService.getService().getBytecodeProvider().getClassNode(target);
+       return switch (mixin.substring(mixin.lastIndexOf('.') + 1)) {
+         case "BackpackUpgradeOwnerMixin" -> field(klass, "storageWrapper",
+             "Lnet/p3pp3rf1y/sophisticatedcore/api/IStorageWrapper;");
+         case "BackpackInventoryReceiptMixin" -> method(klass, "insertItemInternal", "(I"+STACK+"Z)"+STACK)
+             && method(klass, "getSlotStack", "(I)"+STACK);
+         case "BackpackVoidReceiptMixin" -> klass.methods.stream().anyMatch(m ->
+             m.name.equals("onBeforeInsert") && m.desc.endsWith(STACK+"Z)"+STACK));
+         default -> false;
+       };
+     } catch (ClassNotFoundException | java.io.IOException | RuntimeException | LinkageError ignored) {
+       return false;
+     }
+   }
    if (!mixin.contains("Compass")) return true;
    if (adapter == null) adapter = compassAdapter();
    var name = mixin.substring(mixin.lastIndexOf('.') + 1);
@@ -115,29 +129,8 @@ public final class CompassMixinPlugin implements IMixinConfigPlugin {
    return false;
  }
 
- private static boolean lootrMenuShape(String target) {
-   try {
-     var klass = MixinService.getService().getBytecodeProvider().getClassNode(target);
-     var found = new HashSet<String>();
-     for (var method : klass.methods) {
-       if (!Set.of("handleLootChest", "handleLootInventory", "handleLootCart").contains(method.name))
-         continue;
-       int calls = 0;
-       for (var instruction : method.instructions) {
-         if (instruction instanceof MethodInsnNode call
-             && call.owner.equals("net/minecraft/world/entity/player/Player")
-             && call.desc.equals("(Lnet/minecraft/world/MenuProvider;)Ljava/util/OptionalInt;")
-             && (call.name.equals("openMenu") || call.name.equals("m_5893_"))) calls++;
-       }
-       if (calls != 2 || !found.add(method.name)) return false;
-     }
-     return found.size() == 3;
-   } catch (ClassNotFoundException | java.io.IOException | RuntimeException | LinkageError e) {
-     return false;
-   }
- }
  public void acceptTargets(Set<String>a,Set<String>b){} public List<String> getMixins(){return null;}
- public void preApply(String t,ClassNode n,String m,IMixinInfo i){} public void postApply(String t,ClassNode n,String m,IMixinInfo i){if(m.endsWith(".LootrMenuMixin")) LootrBridge.menuHookApplied();
-   else if (m.endsWith(".OriginalCompassItemMixin") || m.endsWith(".EnhanceCompassItemMixin")
+ public void preApply(String t,ClassNode n,String m,IMixinInfo i){} public void postApply(String t,ClassNode n,String m,IMixinInfo i){
+   if (m.endsWith(".OriginalCompassItemMixin") || m.endsWith(".EnhanceCompassItemMixin")
        || m.endsWith(".UnifiedCompassMixin")) CompassTargets.legacyAdapterApplied();}
 }

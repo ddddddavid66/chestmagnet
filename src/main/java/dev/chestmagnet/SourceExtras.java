@@ -407,9 +407,18 @@ public final class SourceExtras {
   }
 
   private static boolean hasLock(BaseContainerBlockEntity b) {
+    return !lockOf(b).unlocksWith(ItemStack.EMPTY);
+  }
+
+  static boolean openableWithHeldKey(BaseContainerBlockEntity b, ServerPlayer player) {
+    // 与原版一致，但不重复向附近玩家播放锁定音效或发送提示。
+    return player.isSpectator() || lockOf(b).unlocksWith(player.getMainHandItem());
+  }
+
+  private static net.minecraft.world.LockCode lockOf(BaseContainerBlockEntity b) {
     if (LockField.VALUE == null) throw new IllegalStateException("原版锁字段不匹配");
     try {
-      return !((net.minecraft.world.LockCode) LockField.VALUE.get(b)).unlocksWith(ItemStack.EMPTY);
+      return (net.minecraft.world.LockCode) LockField.VALUE.get(b);
     } catch (IllegalAccessException e) {
       throw new IllegalStateException(e);
     }
@@ -442,6 +451,7 @@ public final class SourceExtras {
   }
 
   static boolean finish(ServerPlayer p, Object o, IItemHandler inv, ItemStack m) {
+    if (BossProtection.protects(o, m)) return false;
     if (LootCapture.pending(m)) return false;
     if (!empty(inv)) return false;
     if (!option(m, "CollectLocked")) return true;

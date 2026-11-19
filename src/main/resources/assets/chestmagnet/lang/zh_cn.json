@@ -1,10 +1,10 @@
 {
-  "item.chestmagnet.chest_magnet": "宝箱磁铁",
-  "itemGroup.chestmagnet": "宝箱磁铁",
+  "item.chestmagnet.chest_magnet": "宝藏磁铁",
+  "itemGroup.chestmagnet": "宝藏磁铁",
   "structure.minecraft.jungle_pyramid": "丛林神庙",
   "structure.minecraft.desert_pyramid": "沙漠神庙",
   "structure.minecraft.pillager_outpost": "掠夺者前哨站",
-  "key.categories.chestmagnet": "宝箱磁铁",
+  "key.categories.chestmagnet": "宝藏磁铁",
   "key.chestmagnet.toggle": "开启／关闭磁铁",
   "key.chestmagnet.settings": "打开配置（对准空气）",
   "key.chestmagnet.exclude": "排除／取消排除来源",

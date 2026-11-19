@@ -1,5 +1,5 @@
 plugins { id 'java'; id 'net.minecraftforge.gradle' version '6.0.54' }
-version = '1.2.8'
+version = '1.2.9'
 group = 'dev.chestmagnet'
 base { archivesName = 'chestmagnet-forge-1.20.1' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
@@ -15,9 +15,12 @@ minecraft {
 repositories {
     if (project.hasProperty('launcherLibraries')) maven { url = uri(project.property('launcherLibraries')); metadataSources { artifact() } }
     mavenCentral()
+    maven { url = "https://maven.blamejared.com/"; content { includeGroup "mezz.jei" } }
     flatDir { dirs 'libs' }
 }
 dependencies {
+    if (file("libs/qajei-15.jar").exists()) compileOnly fg.deobf("local:qajei:15")
+    else compileOnly fg.deobf("mezz.jei:jei-1.20.1-common-api:15.20.0.129")
     def questVersion = project.hasProperty('qa126Old') ? '2001.4.13' : '2001.4.22'
     def optional126 = ["ftb-quests-forge:${questVersion}", 'beyonddimensions:0.8.9']
     optional126.each { compileOnly fg.deobf("local:${it}") }
@@ -107,6 +110,7 @@ if (project.hasProperty('verification')) {
 }
 
 if (!project.hasProperty('qa126')) {
+    sourceSets.main.java.exclude '**/TrackingChecks.java', '**/TrackingClient.java', '**/TrackingNetworks.java', '**/TrackingBags.java', '**/TrackingJeiCheck.java'
     sourceSets.main.java.exclude '**/Storage126Tests.java', '**/Production126Quests.java'
 }
 if (project.hasProperty('qa126')) {

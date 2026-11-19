@@ -35,6 +35,10 @@ public final class StructureJobs {
     Map<ChunkPos, Long> tickets = new LinkedHashMap<>();
     Set<String> seen = new HashSet<>();
     ArrayDeque<Sources.Ref> sources = new ArrayDeque<>();
+    final Set<BlockPos> deferredLootr = new LinkedHashSet<>();
+    Iterator<BlockPos> lootrRecheck;
+    int lootrWaiting;
+    final Set<String> bossProtected = new HashSet<>();
     ChunkPos current, resume;
     SourceExtras.Scan specialScan;
     List<BlockPos> blockEntities = List.of();
@@ -130,6 +134,7 @@ public final class StructureJobs {
       return;
     }
     if (j != null) {
+      j.bossProtected.clear();
       if (!valid(p, j)) throw new IllegalArgumentException("目标、距离或磁铁身份已经变化，请重新确认");
       AutoStructures.allow(p, j.result);
       resume(p, j, magnet);
@@ -395,7 +400,9 @@ public final class StructureJobs {
       j.chapel = ChapelPedestals.Layout.EMPTY;
       j.complete = j.running = false;
       j.done = j.found = j.loadRequests = j.processed = j.skipped = 0;
+      j.bossProtected.clear();
       j.seen.clear(); j.skippedKeys.clear(); j.markers.clear(); j.waiting.clear();
+      j.deferredLootr.clear(); j.lootrRecheck = null; j.lootrWaiting = 0;
     }
     Faults.structure(structureKey(j));
     try { Faults.migrate(p, magnet); } finally { Faults.clearContext(); }
@@ -807,19 +814,32 @@ public final class StructureJobs {
     // 共享同一tick的槽/栈预算；空热区块最多连续完成8块，避免独占其他玩家时间片。
     for (int chunks = 0; chunks < 8 && System.nanoTime() < deadline; chunks++) {
       Faults.context(p, magnet, null, "准备区块");
-      if (!selectCurrent(p, j, magnet, now)) break;
-      prefetch(j, j.current, now);
-      Faults.context(p, magnet, null, "发现来源");
-      discoveries += discoverCurrent(p, j, magnet, Config.SCAN.get() - discoveries, deadline);
-      // 同一时间片可完成一个特殊分节，不再每512格强制等待下一tick。
-      for (int batch = 0; j.specialScan != null && batch < 8 && System.nanoTime() < deadline; batch++)
-        if (j.specialScan.step(o -> {
-          if (contains(j, SourceExtras.pos(o))) addSource(p, j, magnet, Sources.of(o), SourceExtras.pos(o));
-        }, deadline)) j.specialScan = null;
+      boolean rechecking = j.lootrRecheck != null;
+      if (rechecking) {
+        if (j.sources.isEmpty()) {
+          if (!j.lootrRecheck.hasNext() || discoveries >= Config.SCAN.get()) break;
+          j.sources.add(new Sources.Ref(j.lootrRecheck.next(), null));
+          discoveries++;
+        }
+      } else {
+        if (!selectCurrent(p, j, magnet, now)) break;
+        prefetch(j, j.current, now);
+        Faults.context(p, magnet, null, "发现来源");
+        discoveries += discoverCurrent(p, j, magnet, Config.SCAN.get() - discoveries, deadline);
+        // 同一时间片可完成一个特殊分节，不再每512格强制等待下一tick。
+        for (int batch = 0; j.specialScan != null && batch < 8 && System.nanoTime() < deadline; batch++)
+          if (j.specialScan.step(o -> {
+            if (contains(j, SourceExtras.pos(o))) addSource(p, j, magnet, Sources.of(o), SourceExtras.pos(o));
+          }, deadline)) j.specialScan = null;
+      }
       while (!j.sources.isEmpty() && probes < Config.PROBES.get()
           && moved < Config.STACKS.get() && System.nanoTime() < deadline) {
         var ref = j.sources.peek();
         Faults.context(p, magnet, ref, "准备");
+        if (rechecking && j.level.getChunkSource().getChunkNow(ref.pos().getX() >> 4, ref.pos().getZ() >> 4) == null) {
+          j.lootrWaiting++;
+          j.sources.remove(); j.slot = 0; continue;
+        }
         var o = ref.resolve(p);
         if (Faults.skipped(p, magnet, ref) && j.skippedKeys.add(ref.key(p))) j.skipped++;
         if (o == null || !contains(j, o) || Data.excluded(magnet, ref.key(p))
@@ -827,16 +847,32 @@ public final class StructureJobs {
             || ref.members(p).stream().anyMatch(at -> !contains(j, at))) {
           j.sources.remove(); j.slot = 0; continue;
         }
+        if (BossProtection.protects(o, magnet)) {
+          j.bossProtected.add(ref.key(p));
+          j.sources.remove(); j.slot = 0; continue;
+        }
         boolean pedestal = ref.pos() != null && j.chapel.rewards().containsKey(ref.pos());
         var pedestalInventory = pedestal && Data.autoStructure(magnet)
                 && o instanceof net.minecraft.world.level.block.entity.BlockEntity be
             ? j.chapel.inventory(j.level, be) : null;
         if (pedestal ? pedestalInventory == null : !Sources.eligible(o)) { j.sources.remove(); j.slot = 0; continue; }
-        if (!doubleReady(p, j, o)) return;
+        // 复查不申请任何区块票据：如果还是普通容器，留给 Lootr 转换。
+        if (rechecking && !Sources.personalLoot(o)) {
+          j.lootrWaiting++;
+          j.sources.remove(); j.slot = 0; continue;
+        }
+        if (!rechecking && !doubleReady(p, j, o)) return;
         if (target.unavailable()) { pauseTarget(p, j, target.reason()); return; }
         if (target.loops(ref, p)) { j.sources.remove(); j.slot = 0; continue; }
         var inv = pedestal ? pedestalInventory : Sources.inventory(p, o, magnet);
-        if (inv == null) { j.sources.remove(); j.slot = 0; continue; }
+        if (inv == null) {
+          if (!rechecking && !pedestal) {
+            // 冰冻箱可能已原地换成普通战利品箱；查当前位置的新方块实体。
+            var live = o instanceof SourceExtras.Special ? ref.resolve(p) : o;
+            j.deferredLootr.addAll(Sources.pendingLootrConversion(p, live));
+          }
+          j.sources.remove(); j.slot = 0; continue;
+        }
         // 开锁/粉碎已生成的奖励下tick统一交付，不能同tick叠加另一份栈预算。
         if (LootCapture.pending(magnet)) { j.status = "开箱产物待处理"; return; }
         if (j.slot >= inv.getSlots()) {
@@ -871,6 +907,10 @@ public final class StructureJobs {
           j.paused = true; releaseForPause(j); return;
         }
       }
+      if (rechecking) {
+        if (!j.sources.isEmpty() || probes >= Config.PROBES.get() || moved >= Config.STACKS.get()) break;
+        continue;
+      }
       if (!discoveryComplete(j) || !j.sources.isEmpty() || j.specialScan != null || LootCapture.pending(magnet)) break;
       var at = j.current;
       if (j.tickets.remove(at) != null)
@@ -882,16 +922,26 @@ public final class StructureJobs {
       if (probes >= Config.PROBES.get() || moved >= Config.STACKS.get()) break;
     }
     if (j.current == null && j.tickets.isEmpty() && j.waiting.isEmpty() && !j.paused) {
+      if (j.lootrRecheck == null && !j.deferredLootr.isEmpty()) {
+        j.lootrRecheck = j.deferredLootr.iterator();
+        j.status = "复查 Lootr 待转换容器";
+        return;
+      }
+      if (j.lootrRecheck != null && (j.lootrRecheck.hasNext() || !j.sources.isEmpty())) return;
       j.complete = true;
       int skipped = j.skipped;
       int isolated = Math.max(0, Data.tag(magnet).getList("Quarantined", 10).size() - j.isolatedBefore);
-      j.status = skipped > 0 || isolated > 0
-          ? "扫描结束，已跳过 " + skipped + " 个错误来源、保留 " + isolated + " 条隔离记录 · 已处理 " + j.processed + " 件"
+      boolean allCollected = skipped == 0 && isolated == 0 && j.lootrWaiting == 0 && j.bossProtected.isEmpty();
+      j.status = !allCollected
+          ? "扫描结束，已跳过 " + skipped + " 个错误来源、保留 " + isolated + " 条隔离记录"
+              + (j.lootrWaiting == 0 ? "" : " · 部分容器等待 Lootr 转换（" + j.lootrWaiting + " 处），靠近后可重扫")
+              + (j.bossProtected.isEmpty() ? "" : " · 已保护 " + j.bossProtected.size() + " 个首领来源，原生解锁后可继续任务")
+              + " · 已处理 " + j.processed + " 件"
           : "全部扫描收取完成 · 已处理 " + j.processed + " 件";
       j.paused = true;
       j.waitingTarget = false;
-      AutoStructures.remember(p, j.result, skipped == 0 && isolated == 0 ? "COMPLETE" : "BLOCKED", j.status);
-      if (j.automatic && skipped == 0 && isolated == 0) {
+      AutoStructures.remember(p, j.result, allCollected ? "COMPLETE" : "BLOCKED", j.status);
+      if (j.automatic && allCollected) {
         String key = j.result.getString("Structure");
         p.displayClientMessage(Component.literal("当前结构：")
             .append(Component.translatableWithFallback("structure." + key.replace(':', '.'), key))
